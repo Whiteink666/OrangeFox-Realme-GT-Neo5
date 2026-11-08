@@ -10,6 +10,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    # A previous run hung at 42% for 30+ min with zero output. Cap the job
+    # so a stall does not silently consume the full 6h runner allowance.
+    # -j1 is intentionally slower than -j2, so leave 150 min for the build
+    # step and another 30 min for log/artifact upload.
+    timeout-minutes: 180
     steps:
       - name: Checkout device tree
         uses: actions/checkout@v4
@@ -37,6 +42,26 @@ jobs:
           sudo apt-get clean
           echo "=== AFTER ==="
           df -h / /mnt || true
+
+      - name: Add swap (safe, no repartition)
+        run: |
+          echo "=== memory before ==="
+          free -h
+          swapon --show || true
+          # GitHub runners often have little/no swap; adding a plain swapfile
+          # (NOT an LVM repartition) gives the linker headroom on 7 GB RAM.
+          if [ ! -f /swapfile_extra ]; then
+            sudo fallocate -l 8G /swapfile_extra 2>/dev/null \
+              || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=8192 status=none
+            sudo chmod 600 /swapfile_extra
+            sudo mkswap /swapfile_extra >/dev/null 2>&1 || true
+            sudo swapon /swapfile_extra 2>/dev/null \
+              || echo "swapon unavailable (container restriction) - continuing"
+          fi
+          echo "=== memory after ==="
+          free -h
+          swapon --show || true
+          df -h / || true
 
       - name: Install build dependencies
         run: |
@@ -75,8 +100,27 @@ jobs:
         # GitHub Actions runs steps with `bash -e` by default. AOSP envsetup.sh
         # is NOT -e safe: it exits silently after sourcing vendorsetup.sh, so
         # `lunch` / `mka` are never reached. Use a standalone script without -e.
+        timeout-minutes: 150
         run: |
           set +e
+          # Heartbeat: a stalled ninja produces NO output for tens of minutes,
+          # which looks like a hung runner. This prints memory/load every 60s
+          # so we can tell "slow but alive" from "dead" and see OOM pressure.
+          cat > "$HOME/ofox_memwatch.sh" <<'WATCH'
+          #!/bin/bash
+          while true; do
+            echo "===== HEARTBEAT $(date -u '+%H:%M:%S') ====="
+            free -h
+            echo "-- disk --"
+            df -h / | tail -2
+            echo "-- load / top RSS --"
+            uptime
+            ps -eo pid,ppid,rss,pcpu,comm --sort=-rss | head -8
+            sleep 60
+          done
+          WATCH
+          chmod +x "$HOME/ofox_memwatch.sh"
+
           cat > "$HOME/ofox_build.sh" <<'SCRIPT'
           #!/bin/bash
           cd "$HOME/fox_12.1" || exit 90
@@ -85,6 +129,9 @@ jobs:
           export FOX_BUILD_DEVICE=RMXTARO
           # thor's BUILD.md: ccache dir permission issues break CI builds
           unset USE_CCACHE CCACHE_DIR CCACHE_EXEC CC_WRAPPER
+          # Keep ninja progress line-buffered so the Actions log streams live.
+          export NINJA_STATUS="[%p %f/%t] "
+          export USE_NINJA_PROGRESS=1
 
           echo "===== [1/3] envsetup.sh ====="
           . build/envsetup.sh
@@ -102,14 +149,22 @@ jobs:
             exit 91
           fi
 
-          echo "===== [3/3] mka recoveryimage ====="
-          mka recoveryimage -j2
-          echo "mka_rc=$?"
+          echo "===== [3/3] mka recoveryimage (-j1, low memory) ====="
+          mka recoveryimage -j1
+          MKA_RC=$?
+          echo "mka_rc=$MKA_RC"
+          exit $MKA_RC
           SCRIPT
           chmod +x "$HOME/ofox_build.sh"
-          bash "$HOME/ofox_build.sh" 2>&1 | tee "$HOME/ofox_build.log"
-          echo "===== last 100 lines of build log ====="
-          tail -100 "$HOME/ofox_build.log"
+
+          # Start heartbeat in background, then the build. Both feed the log.
+          "$HOME/ofox_memwatch.sh" >> "$HOME/ofox_build.log" 2>&1 &
+          WATCH_PID=$!
+          bash "$HOME/ofox_build.sh" 2>&1 | tee -a "$HOME/ofox_build.log"
+          kill "$WATCH_PID" 2>/dev/null || true
+
+          echo "===== last 120 lines of build log ====="
+          tail -120 "$HOME/ofox_build.log"
           IMG="$HOME/fox_12.1/out/target/product/RMXTARO/recovery.img"
           if [ -f "$IMG" ]; then
             echo "RECOVERY_IMAGE_OK: $(ls -l "$IMG")"
