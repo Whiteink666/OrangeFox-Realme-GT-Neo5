@@ -14,9 +14,11 @@
 
 ## 状态
 
-- 当前基线：**OrangeFox R11.3**（fox_12.1 基底），主题仍为旧版 `portrait_hdpi`。
-- 下一步：将 `bootable/recovery` + `vendor/recovery` 切到 **R12.0** 分支，启用全新 UI
-  （Material You Expressive、SVG 图标引擎、Fox White/Dark 双主题、Inter 字体、手势导航）。
+- **OrangeFox R12.0 新 UI**：`fox_12.1` manifest 拉取的 `bootable/recovery` 中
+  `FOX_INTERNAL_RELEASE := R12.0`，即 Material You Expressive 界面、SVG 图标引擎、
+  Fox White/Dark 双主题、Inter 字体、手势导航**已在本次构建中**，无需再迁移分支。
+- 设备树的 `TW_THEME := portrait_hdpi` 仅影响旧主题兼容；R12 的界面资源由
+  `vendor/recovery` + `bootable/recovery` 提供。
 - 已修复：把 10 个 OPLUS `my_*` 逻辑分区补进 `AB_OTA_PARTITIONS`，消除 OTA 时报
   “logical partition not found” 的隐患（此前靠 `OF_IGNORE_LOGICAL_MOUNT_ERRORS` 掩盖）。
 
@@ -89,7 +91,7 @@ fastboot reboot recovery
 
 ## Credits
 
-- 设备树基于 [MisterZtr/recovery_device_realme_RMXTARO](https://github.com/MisterZtr/recovery_device_realme_RMXTARO)（OrangeFox R11.3）
+- 设备树基于 [MisterZtr/recovery_device_realme_RMXTARO](https://github.com/MisterZtr/recovery_device_realme_RMXTARO)（`fox-12.1` 分支）
 - OrangeFox Recovery Project（TeamWin TWRP 衍生）
 - 原始贡献：Bot-cd-Crypton、hoangzk9as、Ctapchuk、Kychera22
 

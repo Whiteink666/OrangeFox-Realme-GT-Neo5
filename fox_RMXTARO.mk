@@ -60,16 +60,19 @@ OF_MAINTAINER := Whiteink
 
 # ============================================================
 # Whiteink (白墨) customizations
-# Base: MisterZtr/recovery_device_realme_RMXTARO (OrangeFox R11.3, fox_12.1)
+# Base: MisterZtr/recovery_device_realme_RMXTARO (fox_12.1 manifest)
 # Device: realme GT Neo5 / GT3 (codename RMXTARO, aka senna) - SM8475
-# Plan: keep R11.3 base building, then upgrade UI layer to OrangeFox R12.0
+#
+# NOTE: the fox_12.1 manifest pulls bootable/recovery with
+# FOX_INTERNAL_RELEASE := R12.0, so the new-UI sources are ALREADY in
+# this build - no separate R12 branch migration is required.
 # ============================================================
-FOX_MAINTAINER_PATCH_VERSION := Whiteink-1.0
+# OrangeFox orangefox.mk validates this with printf '%d' and calls
+# $(error Only whole numbers...) for anything non-numeric.
+# It is appended to the release string as R12.0_1 (underscore added by OF).
+FOX_MAINTAINER_PATCH_VERSION := 1
 
-# R12 UI upgrade checklist (apply when moving bootable/recovery +
-# vendor/recovery onto the R12 branch):
-#   - TW_THEME -> new R12 theme engine (Fox White / Fox Dark)
-#   - enable Inter font + gesture nav via OF flags (R12 default)
-#   - swap SVG icon set into vendor/recovery images/
-# Current build stays on R11.3 portrait_hdpi until R12 branch is wired in.
+# R12 new UI: Fox White / Fox Dark themes, SVG icon engine, Inter font,
+# gesture navigation are supplied by vendor/recovery + bootable/recovery.
+# Per-device screen tuning lives in the OF_* flags above.
 
