@@ -14,15 +14,29 @@ jobs:
       - name: Checkout device tree
         uses: actions/checkout@v4
 
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 2048
-          swap-size-mb: 8192
-          remove-dotnet: true
-          remove-android: true
-          remove-haskell: true
-          remove-codeql: true
+      # IMPORTANT: Do NOT use easimon/maximize-build-space here.
+      # A previous run used root-reserve-mb: 2048, which shrank the root
+      # filesystem to 2 GB. The runner itself lives at
+      # /home/runner/actions-runner and could no longer write its own
+      # _diag/Worker_*.log, so the Worker process crashed with
+      # "System.IO.IOException: No space left on device" and the job was
+      # killed mid-step (step 4 stuck at in_progress).
+      # We only delete unused preinstalled toolchains - no LVM repartition.
+      - name: Free disk space (safe cleanup, no repartition)
+        run: |
+          echo "=== BEFORE ==="
+          df -h / /mnt || true
+          sudo rm -rf /usr/local/lib/android \
+                      /usr/share/dotnet \
+                      /opt/ghc \
+                      /usr/local/.ghcup \
+                      /usr/local/share/boost \
+                      /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/powershell \
+                      /usr/share/swift 2>/dev/null || true
+          sudo apt-get clean
+          echo "=== AFTER ==="
+          df -h / /mnt || true
 
       - name: Install build dependencies
         run: |
@@ -44,15 +58,18 @@ jobs:
 
       - name: Set up OrangeFox source (fox_12.1 / R11.3 base)
         run: |
-          git clone https://gitlab.com/OrangeFox/sync.git ~/ofsync
-          cd ~/ofsync
-          ./orangefox_sync.sh --branch 12.1 --path ~/fox_12.1
+          git clone --depth 1 https://gitlab.com/OrangeFox/sync.git "$HOME/ofsync"
+          cd "$HOME/ofsync"
+          # orangefox_sync.sh REQUIRES an absolute path for --path
+          ./orangefox_sync.sh --branch 12.1 --path "$HOME/fox_12.1"
 
       - name: Place device tree
         run: |
           mkdir -p ~/fox_12.1/device/realme
           rm -rf ~/fox_12.1/device/realme/RMXTARO
           cp -r "$GITHUB_WORKSPACE" ~/fox_12.1/device/realme/RMXTARO
+          echo "=== disk after source sync ==="
+          df -h / || true
 
       - name: Build recovery
         run: |
@@ -60,9 +77,11 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
           export FOX_BUILD_DEVICE=RMXTARO
+          export USE_CCACHE=1
+          export CCACHE_DIR="$HOME/.ccache"
           . build/envsetup.sh
           lunch twrp_RMXTARO-eng
-          mka adbd recoveryimage -j"$(nproc)"
+          mka adbd recoveryimage -j2
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
