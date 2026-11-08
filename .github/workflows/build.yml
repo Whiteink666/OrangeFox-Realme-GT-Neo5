@@ -56,7 +56,7 @@ jobs:
           chmod +x ~/.bin/repo
           echo "$HOME/.bin" >> $GITHUB_PATH
 
-      - name: Set up OrangeFox source (fox_12.1 / R11.3 base)
+      - name: Set up OrangeFox source (fox_12.1 manifest / R12.0 UI)
         run: |
           git clone --depth 1 https://gitlab.com/OrangeFox/sync.git "$HOME/ofsync"
           cd "$HOME/ofsync"
