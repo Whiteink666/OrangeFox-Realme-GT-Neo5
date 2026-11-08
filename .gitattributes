@@ -1,0 +1,17 @@
+# Recovery runs on Linux. CRLF in *.sh / *.mk / *.rc breaks parsing
+# ("/system/bin/sh: ^M: not found"), so normalize every text file to LF.
+* text=auto eol=lf
+
+# Prebuilt vendor blobs must never be rewritten by EOL conversion.
+*.bin  -text
+*.img  -text
+*.so   -text
+*.ko   -text
+*.fw   -text
+*.elf  -text
+*.mbn  -text
+*.png  -text
+*.jpg  -text
+
+# ELF executables without an extension in recovery/root/system/bin/
+# are detected as binary by git's NUL-byte heuristic automatically.
