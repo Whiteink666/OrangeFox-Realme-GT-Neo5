@@ -1,0 +1,17 @@
+# Local build outputs
+out/
+*.img.tmp
+recovery.img
+OrangeFox-*.zip
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Local secrets - never commit credentials
+*token*
+*secret*.txt
+.gh_token

@@ -1,0 +1,78 @@
+name: OrangeFox Recovery (RMXTARO / GT Neo5)
+
+on:
+  push:
+    branches: [main, master, fox-12.1]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout device tree
+        uses: actions/checkout@v4
+
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 2048
+          swap-size-mb: 8192
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git gnupg gperf imagemagick \
+            lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev \
+            libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush \
+            rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
+            openjdk-17-jdk python3
+          sudo ln -sf /usr/bin/python3 /usr/bin/python
+
+      - name: Install repo tool
+        run: |
+          mkdir -p ~/.bin
+          curl -sL https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
+          chmod +x ~/.bin/repo
+          echo "$HOME/.bin" >> $GITHUB_PATH
+
+      - name: Set up OrangeFox source (fox_12.1 / R11.3 base)
+        run: |
+          git clone https://gitlab.com/OrangeFox/sync.git ~/ofsync
+          cd ~/ofsync
+          ./orangefox_sync.sh --branch 12.1 --path ~/fox_12.1
+
+      - name: Place device tree
+        run: |
+          mkdir -p ~/fox_12.1/device/realme
+          rm -rf ~/fox_12.1/device/realme/RMXTARO
+          cp -r "$GITHUB_WORKSPACE" ~/fox_12.1/device/realme/RMXTARO
+
+      - name: Build recovery
+        run: |
+          cd ~/fox_12.1
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          export FOX_BUILD_DEVICE=RMXTARO
+          . build/envsetup.sh
+          lunch twrp_RMXTARO-eng
+          mka adbd recoveryimage -j"$(nproc)"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrangeFox-RMXTARO-${{ github.run_number }}
+          path: ~/fox_12.1/out/target/product/RMXTARO/recovery.img
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ~/fox_12.1/out/target/product/RMXTARO/recovery.img
