@@ -115,6 +115,10 @@ TW_QCOM_ATS_OFFSET := 1666528204500
 TW_EXCLUDE_APEX := true
 TW_EXCLUDE_DEFAULT_USB_INIT := true
 TW_EXTRA_LANGUAGES := true
+# data.cpp reads EXPAND(TW_DEFAULT_LANGUAGE) at first boot. Keep zh_CN as the
+# default so the Whiteink maintainer pages (hardcoded Simplified Chinese) render
+# with the wqy-microhei fontoverride. Users can still switch in Settings.
+TW_DEFAULT_LANGUAGE := zh_CN
 TW_INCLUDE_CRYPTO := true
 TW_NO_EXFAT_FUSE := true
 TW_INCLUDE_NTFS_3G := true

@@ -113,16 +113,43 @@ fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
 ⚠️ **禁止 `fastboot boot recovery.img`**：本机为 Virtual A/B 动态分区设备，临时启动
 环境不完整，会导致解密失败甚至变砖。必须 `flash` 进分区再重启。
 
-## 自定义元素（加自己的东西）
+## 白墨工作室自定义页面
 
-| 想改的东西 | 文件 |
+进入方式：**高级（Advanced）→ 自定义设置（Custom settings）**。这个入口是 OrangeFox
+官方预留的维护者 hook，不是我们改出来的：
+
+- `ui.xml` 里已有 `<xml name="/sbin/maintainer.xml" default="/twres/pages/dummy.xml"/>`
+- `pages/advanced.xml` 的按钮带 `<condition var1="fileexists" var2="/sbin/maintainer.xml"/>`
+
+所以只要设备树提供 `/sbin/maintainer.xml`，入口就自动出现，**不需要 fork 或修改上游
+`bootable/recovery` 源码**，云编译每次重新同步源码也不会丢失。
+
+| 内容 | 位置 |
 | --- | --- |
-| 署名 / 版本 | `fox_RMXTARO.mk` 的 `OF_MAINTAINER` / `FOX_MAINTAINER_PATCH_VERSION` |
-| 配色 / 字体 / 图标 | `bootable/recovery` 的 `ui.xml` + `themes/` + `images/`（R12 用 SVG） |
-| 自定义页面 / 按钮（工作室、QQ群、酷安、GitHub） | `pages/*.xml` + `portrait.xml` |
-| 状态栏 / 挖孔 / 圆角 | `fox_RMXTARO.mk`：`OF_SCREEN_H 2412`、`OF_STATUS_H 106`、`OF_STATUS_INDENT_* 48`、`OF_HIDE_NOTCH 1` |
-| 开机图 | ⚠️ 本树设了 `OF_NO_SPLASH_CHANGE := 1`，**开机图必须编译进 recovery**，运行时换无效 |
-| 中文字体 | R12 起可用 `FOX_USE_MISANS_FONTS := 1` |
+| 页面 / 按钮 / 文案 | `recovery/root/sbin/maintainer.xml`（5 个页面：`maintainer`、`whiteink_qq`、`whiteink_coolapk`、`whiteink_github`、`whiteink_about`） |
+| 作者横幅 + 3 张二维码 | `recovery/root/twres/images/Whiteink/*.png` |
+| 云编译注入（防止 twres 生成顺序覆盖资源） | `.github/workflows/build.yml` → `Inject Whiteink UI overlay into theme source` |
+| 默认语言 | `BoardConfig.mk` → `TW_DEFAULT_LANGUAGE := zh_CN`（仍可在 设置 → 语言 切换） |
+| 署名 / 版本 | `fox_RMXTARO.mk` → `OF_MAINTAINER := Whiteink`、`FOX_MAINTAINER_PATCH_VERSION := 1` |
+
+作者署名是 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室**。内置中文字体
+`wqy-microhei.ttf` 不含 U+1F43E，直接写进 `<text>` 会显示豆腐块，因此横幅用
+Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG 放进 `twres/images/Whiteink/`。
+
+三个入口用二维码落地（recovery 里没有浏览器，扫码是最实用的跳转方式）：
+
+| 入口 | 二维码内容 |
+| --- | --- |
+| QQ 群 | `mqqapi://card/show_pslcard?...uin=287398984&card_type=group...`（QQ 扫一扫直接开群资料卡），页面同时显示群号 |
+| 酷安 | `https://www.coolapk.com/u/30264531` |
+| GitHub | `https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5`（**就是本仓库**） |
+
+想换链接/群号：改 PNG 里的二维码内容后覆盖同名文件即可；生成脚本用的参数是
+`qrcode` 的 `ERROR_CORRECT_M` + 4 模块静区，输出 480×480 整数倍模块尺寸，避免缩放糊掉。
+
+后续还能加的（尚未做）：`themes/accent.xml` 改专属配色、`FOX_USE_MISANS_FONTS := 1`
+换中文字体、整套 SVG 图标替换、开机 splash（注意本树设了 `OF_NO_SPLASH_CHANGE := 1`，
+**开机图必须编译进 recovery**，运行时换无效）。
 
 ## 已知注意事项
 
