@@ -62,12 +62,48 @@ mka recoveryimage -j$(nproc)
 
 ## 刷入
 
+前置条件：bootloader 已解锁、`fastboot devices` 能识别设备、已备份 `/data`，
+且**当前固件版本与镜像匹配**（本镜像 `kernel_size=0`，不含内核，直接用机器的 5.10 内核）。
+
+### 最小验证流程（只需 `recovery.img`，不动 vbmeta、不清数据）
+
+Windows PowerShell，路径换成你的实际位置：
+
+```powershell
+fastboot devices
+fastboot flash recovery "C:\Users\Lenovo\WorkBuddy\2026-11-08-23-12-29\build-output\recovery.img"
+fastboot reboot recovery
+```
+
+刷完校验一下：
+
+```powershell
+Get-FileHash .\build-output\recovery.img -Algorithm SHA256
+```
+
+若 `fastboot reboot recovery` 无响应（部分 realme 机型不实现该命令），用
+`fastboot reboot` 并在震动的瞬间按住 **音量下**，或直接用电源 + 音量下组合键。
+
+> ⚠️ 只刷 `recovery.img` 是**非持久安装**：重启进一次系统后，原厂 recovery 可能被
+> 启动链/OTA 还原。长期使用必须做下面的完整安装。首次进入会要求输入锁屏密码解密
+> `/data`；解密失败不要 format data，先退回排查固件版本与 Keymaster 覆盖。
+
+### 完整安装（需要 OrangeFox 签名 zip）
+
+进 recovery 后刷 `OrangeFox-R12.0-Unofficial-RMXTARO.zip`。这是 OrangeFox 官方
+R12.0 的**必要步骤**——官方明确写「do NOT just flash the recovery image in the zip
+and stop there」，只刷 img 不算安装完成。OF 会按 `OF_PATCH_AVB20 := 1` 自动处理
+vbmeta / dm-verity，并把自身固化到启动链（含写入非活动 slot，切槽后仍在）。
+官方还要求：刷任何 ROM 之后都要立刻重刷一次 OrangeFox，并始终先做完整备份。
+
+**只有确认系统因 dm-verity 校验起不来时**，才需要另刷 `vbmeta.img`（需自行从与当前
+固件同版本的官方线刷包提取，本仓库不提供）：
+
 ```bash
 fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
-fastboot flash recovery out/target/product/RMXTARO/recovery.img
-fastboot reboot recovery
-# 进 recovery 后，再刷一次 OrangeFox 的 zip 完成完整安装
 ```
+
+⚠️ 这条命令会改变 AVB 状态，通常伴随**清空 data**，务必先备份；不要在最小验证流程里执行。
 
 ⚠️ **禁止 `fastboot boot recovery.img`**：本机为 Virtual A/B 动态分区设备，临时启动
 环境不完整，会导致解密失败甚至变砖。必须 `flash` 进分区再重启。
