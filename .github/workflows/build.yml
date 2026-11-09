@@ -185,11 +185,22 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OrangeFox-RMXTARO-${{ github.run_number }}
-          path: ~/fox_12.1/out/target/product/RMXTARO/recovery.img
+          # recovery.img alone is NOT enough on a Virtual A/B device: after
+          # fastboot flash + reboot recovery, the signed OrangeFox zip must be
+          # flashed from recovery to make the install persistent. Run 5 only
+          # uploaded recovery.img, so ship the zip and checksums as well.
+          path: |
+            ~/fox_12.1/out/target/product/RMXTARO/recovery.img
+            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.zip
+            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.zip.md5
+            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.img.md5
           if-no-files-found: error
 
       - name: Publish release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: ~/fox_12.1/out/target/product/RMXTARO/recovery.img
+          files: |
+            ~/fox_12.1/out/target/product/RMXTARO/recovery.img
+            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.zip
+            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.zip.md5
