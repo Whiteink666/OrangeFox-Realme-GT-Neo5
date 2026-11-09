@@ -136,9 +136,10 @@ jobs:
         timeout-minutes: 150
         run: |
           set +e
-          # Heartbeat: a stalled ninja produces NO output for tens of minutes,
-          # which looks like a hung runner. This prints memory/load every 60s
-          # so we can tell "slow but alive" from "dead" and see OOM pressure.
+          # Heartbeat MUST write to stdout (the live Actions log), not only to
+          # the build log. Run 6 froze at edge 11842/28030 with zero output for
+          # 85+ min: the heartbeat existed but was redirected into a file, so
+          # the UI looked dead and "slow" could not be told from "frozen".
           cat > "$HOME/ofox_memwatch.sh" <<'WATCH'
           #!/bin/bash
           while true; do
@@ -148,7 +149,20 @@ jobs:
             df -h / | tail -2
             echo "-- load / top RSS --"
             uptime
-            ps -eo pid,ppid,rss,pcpu,comm --sort=-rss | head -8
+            ps -eo pid,ppid,stat,rss,pcpu,wchan:24,comm --sort=-rss | head -8
+            LOG="$HOME/ofox_build.log"
+            if [ -f "$LOG" ]; then
+              AGE=$(( $(date +%s) - $(stat -c %Y "$LOG") ))
+              echo "-- build output idle: ${AGE}s --"
+              if [ "$AGE" -gt 1200 ] && [ ! -f "$HOME/ofox_stall_reported" ]; then
+                touch "$HOME/ofox_stall_reported"
+                echo "===== STALL: no build output for ${AGE}s ====="
+                ps -eo pid,ppid,stat,rss,pcpu,wchan:28,comm --sort=-rss | head -25
+                echo "-- ninja / clang --"
+                pgrep -a -f 'ninja|clang|soong' | head -25 || true
+                echo "===== STALL DIAG END ====="
+              fi
+            fi
             sleep 60
           done
           WATCH
@@ -190,8 +204,10 @@ jobs:
           SCRIPT
           chmod +x "$HOME/ofox_build.sh"
 
-          # Start heartbeat in background, then the build. Both feed the log.
-          "$HOME/ofox_memwatch.sh" >> "$HOME/ofox_build.log" 2>&1 &
+          # Heartbeat goes straight to the live log; the build itself is
+          # tee'd into ofox_build.log so its mtime is a clean "is ninja still
+          # producing output?" signal for the stall detector above.
+          "$HOME/ofox_memwatch.sh" &
           WATCH_PID=$!
           bash "$HOME/ofox_build.sh" 2>&1 | tee -a "$HOME/ofox_build.log"
           kill "$WATCH_PID" 2>/dev/null || true
