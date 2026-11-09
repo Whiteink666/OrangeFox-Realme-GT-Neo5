@@ -136,10 +136,13 @@ jobs:
         timeout-minutes: 150
         run: |
           set +e
-          # Heartbeat MUST write to stdout (the live Actions log), not only to
-          # the build log. Run 6 froze at edge 11842/28030 with zero output for
-          # 85+ min: the heartbeat existed but was redirected into a file, so
-          # the UI looked dead and "slow" could not be told from "frozen".
+          # Run 6 AND run 7 both froze when the streamed Actions log reached
+          # ~2,110,3xx bytes (only 121 bytes apart), at 41-42% ninja progress.
+          # Every stdout writer stopped at once - ninja, tee AND the heartbeat
+          # - while memory (12Gi free), disk (67G free) and load (1.0) were
+          # fine. That is the runner's live-log upload pipe wedging, not the
+          # build. So: keep the ~28k ninja progress lines in a FILE (uploaded
+          # as an artifact) and stream only a tiny heartbeat to stdout.
           cat > "$HOME/ofox_memwatch.sh" <<'WATCH'
           #!/bin/bash
           while true; do
@@ -152,6 +155,8 @@ jobs:
             ps -eo pid,ppid,stat,rss,pcpu,wchan:24,comm --sort=-rss | head -8
             LOG="$HOME/ofox_build.log"
             if [ -f "$LOG" ]; then
+              LAST=$(tail -50 "$LOG" | grep -a -o '[0-9][0-9]*% [0-9][0-9]*/[0-9][0-9]*' | tail -1)
+              echo "-- ninja progress: ${LAST:-n/a} --"
               AGE=$(( $(date +%s) - $(stat -c %Y "$LOG") ))
               echo "-- build output idle: ${AGE}s --"
               if [ "$AGE" -gt 1200 ] && [ ! -f "$HOME/ofox_stall_reported" ]; then
@@ -176,7 +181,8 @@ jobs:
           export FOX_BUILD_DEVICE=RMXTARO
           # thor's BUILD.md: ccache dir permission issues break CI builds
           unset USE_CCACHE CCACHE_DIR CCACHE_EXEC CC_WRAPPER
-          # Keep ninja progress line-buffered so the Actions log streams live.
+          # Full ninja progress goes into ofox_build.log (artifact), not the
+          # live Actions log - see the ~2 MiB log-pipe freeze note above.
           export NINJA_STATUS="[%p %f/%t] "
           export USE_NINJA_PROGRESS=1
 
@@ -204,13 +210,16 @@ jobs:
           SCRIPT
           chmod +x "$HOME/ofox_build.sh"
 
-          # Heartbeat goes straight to the live log; the build itself is
-          # tee'd into ofox_build.log so its mtime is a clean "is ninja still
-          # producing output?" signal for the stall detector above.
+          # Only the compact heartbeat touches stdout. Redirecting the build
+          # into a file keeps ~4 MB of ninja output away from the runner's
+          # live-log pipe; the file's mtime is still a clean stall signal.
+          : > "$HOME/ofox_build.log"
           "$HOME/ofox_memwatch.sh" &
           WATCH_PID=$!
-          bash "$HOME/ofox_build.sh" 2>&1 | tee -a "$HOME/ofox_build.log"
+          bash "$HOME/ofox_build.sh" >> "$HOME/ofox_build.log" 2>&1
+          BUILD_RC=$?
           kill "$WATCH_PID" 2>/dev/null || true
+          echo "build_script_rc=$BUILD_RC"
 
           echo "===== last 120 lines of build log ====="
           tail -120 "$HOME/ofox_build.log"
