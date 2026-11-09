@@ -32,10 +32,14 @@
 
 1. 把本仓库 **公开** 推送到你的 GitHub（OrangeFox 为 GPL-3.0，要求公开修改过的设备树）。
 2. 在仓库 **Actions** 页点 **Run workflow**（或 push 到 `main`/`master`/`fox-12.1` 分支）。
-3. 编译完成后，在 **Artifacts** 下载 `recovery.img`、已签名的 `OrangeFox-*.zip` 与
-   `.md5` 校验文件。先 `fastboot flash recovery`，进 recovery 后再刷 zip 完成持久化安装。
+3. 编译成功后 workflow 会自动创建 **Pre-release**（tag `ofox-RMXTARO-r<run号>`），
+   在 **Releases → Assets** 直接下载 `recovery.img`、已签名的 `OrangeFox-*.zip` 与
+   `.md5` 校验文件——无需登录、走 CDN。Actions **Artifacts** 里也保留同样一份
+   （保留 30 天），但匿名下载会 401、速度也慢，仅供备用。
+4. 先 `fastboot flash recovery`，进 recovery 后再刷 zip 完成持久化安装。
 
 > 云端编译使用 GitHub 自带的 `GITHUB_TOKEN`，**无需你提供任何个人密钥**。
+> workflow 只监听 `push` / `workflow_dispatch`；发布 Release **不会**再触发一轮编译。
 > 若免费 runner 磁盘/内存吃紧，可换用大磁盘或自托管 runner。
 
 ### 方式二：本地 WSL2 编译
