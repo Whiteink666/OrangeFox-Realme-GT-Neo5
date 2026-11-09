@@ -1,7 +1,7 @@
 # OrangeFox Recovery for realme GT Neo5 / GT3 (RMXTARO · senna)
 
-一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）构建，
-由 **Whiteink（白墨）** 维护与定制。
+一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
+由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
 
 | 项目 | 信息 |
 | --- | --- |
@@ -11,18 +11,31 @@
 | SoC | 高通 SM8475 骁龙 8+ Gen 1 |
 | 架构 | arm64（内核 5.10，非 GKI，来自机器 boot/vendor_boot） |
 | 分区 | Virtual A/B + 独立 recovery 分区 + 动态分区（super） |
+| 维护 | [酷安 @白墨Whiteink](https://www.coolapk.com/u/30264531) · [GitHub Whiteink666](https://github.com/Whiteink666) · QQ 群 287398984 |
+
+## 目录
+
+[状态](#状态) · [构建](#构建) · [刷入](#刷入) · [验证产物](#验证产物) ·
+[白墨工作室自定义页面](#白墨工作室自定义页面) · [已知注意事项](#已知注意事项) ·
+[常见问题](#常见问题) · [维护约定](#维护约定) · [Credits](#credits)
 
 ## 状态
 
-- **OrangeFox R12.0 新 UI**：`fox_12.1` manifest 拉取的 `bootable/recovery` 中
-  `FOX_INTERNAL_RELEASE := R12.0`，即 Material You Expressive 界面、SVG 图标引擎、
-  Fox White/Dark 双主题、Inter 字体、手势导航**已在本次构建中**，无需再迁移分支。
+| 项目 | 说明 |
+| --- | --- |
+| OrangeFox 版本 | **R12.0**（`fox_12.1` manifest，`FOX_INTERNAL_RELEASE := R12.0`） |
+| 界面 | Material You Expressive、SVG 图标引擎、Fox White / Fox Dark 双主题、Inter 字体、手势导航 |
+| 默认语言 | **简体中文**（`TW_DEFAULT_LANGUAGE := zh_CN`，可在 设置 → 语言 切换） |
+| 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
+| 云端编译基线 | Actions run `42509233113`（head `86bd1f5`）成功，`mka_rc=0`，耗时 **1h57m** |
+| 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-R12.0-Unofficial-RMXTARO.zip` + 两个 `.md5` |
+
+- `fox_12.1` manifest 拉取的 `bootable/recovery` 已是 R12.0 新 UI，**无需再迁移分支**；
+  从镜像解出的 `twres/changelog.txt` 首段即 `OrangeFox Recovery R12.0 Changelog`。
 - 设备树的 `TW_THEME := portrait_hdpi` 仅影响旧主题兼容；R12 的界面资源由
   `vendor/recovery` + `bootable/recovery` 提供。
 - 已修复：把 10 个 OPLUS `my_*` 逻辑分区补进 `AB_OTA_PARTITIONS`，消除 OTA 时报
   “logical partition not found” 的隐患（此前靠 `OF_IGNORE_LOGICAL_MOUNT_ERRORS` 掩盖）。
-- **云端编译已跑通**：Actions run `42509233113`（head `86bd1f5`）成功产出
-  `OrangeFox-R12.0-Unofficial-RMXTARO.img` / `.zip`，编译耗时 1h57m，`mka_rc=0`。
 
 ## 构建
 
@@ -31,7 +44,7 @@
 本仓库已内置 `.github/workflows/build.yml`：
 
 1. 把本仓库 **公开** 推送到你的 GitHub（OrangeFox 为 GPL-3.0，要求公开修改过的设备树）。
-2. 在仓库 **Actions** 页点 **Run workflow**（或 push 到 `main`/`master`/`fox-12.1` 分支）。
+2. 在仓库 **Actions** 页点 **Run workflow**（或 push 到 `main` / `master` / `fox-12.1` 分支）。
 3. 编译成功后 workflow 会自动创建 **Pre-release**（tag `ofox-RMXTARO-r<run号>`），
    在 **Releases → Assets** 直接下载 `recovery.img`、已签名的 `OrangeFox-*.zip` 与
    `.md5` 校验文件——无需登录、走 CDN。Actions **Artifacts** 里也保留同样一份
@@ -40,9 +53,57 @@
 
 > 云端编译使用 GitHub 自带的 `GITHUB_TOKEN`，**无需你提供任何个人密钥**。
 > workflow 只监听 `push` / `workflow_dispatch`；发布 Release **不会**再触发一轮编译。
-> 若免费 runner 磁盘/内存吃紧，可换用大磁盘或自托管 runner。
+
+#### 耗时与资源
+
+| 项目 | 值 |
+| --- | --- |
+| 单次全量编译 | 约 **2 小时**（基线 run：整个 run 124.5 分钟，build step 约 117 分钟） |
+| 编译规模 | 约 **28030** 个 ninja target（整个 AOSP / OrangeFox 基底，不只是 recovery） |
+| 并行度 | `mka recoveryimage -j1`（为低内存 runner 设的，代价是慢） |
+| 超时 | build step 150 分钟，整个 job 180 分钟 |
+| runner | `ubuntu-22.04`，约 15 GiB 内存 / 146 GiB 磁盘，额外 8 GiB swapfile |
+| 缓存 | 每次都是全新 runner，**无跨 run 的 ccache 复用**，重跑即完整两小时 |
+
+想缩短等待可把 `-j1` 提到 `-j2`（15 GiB 内存通常扛得住），但需自行验证稳定性；
+文档与 UI 小改建议统一带 `[skip ci]`，攒够一批再编，避免反复等两小时。
+
+#### CI 产物与日志
+
+| 内容 | 位置 |
+| --- | --- |
+| 可刷镜像 / 签名 zip / 校验文件 | Pre-release `ofox-RMXTARO-r<run号>` 的 Assets（推荐） |
+| 同样一份备用 | Actions Artifacts → `OrangeFox-RMXTARO-<run号>`（30 天） |
+| **完整编译日志** | Actions Artifacts → `build-log-<run号>`（步骤结束后上传） |
+| 实时进度 | Actions 页面实时日志中的 `HEARTBEAT` 与 `-- ninja progress: xx% xxxx/28030 --` |
+
+ninja 的全量输出（约 4 MiB / 28000 行）会被写进 runner 上的 `ofox_build.log`，
+**不经过实时日志流**；实时日志里只有每分钟一组心跳，含采样进度、输出空闲秒数、
+内存 / 磁盘 / 负载。连续 20 分钟无构建输出时会打印一次 `STALL` 进程状态用于取证。
+
+#### CI 已知问题：实时日志管道冻结
+
+历史上有两次构建在 **41–42% 进度** 处冻结：流出的实时日志分别停在
+`2,110,272` 与 `2,110,393` 字节（**仅差 121 字节，约 2.011 MiB**），ninja、`tee`
+和心跳这些写 stdout 的进程**同时**停止，而内存（可用 12 GiB）、磁盘（剩余 67 GiB）、
+load（1.0）都正常。这是 GitHub runner 的 live-log 上传管道 wedged 后把 stdout 写操作
+全部阻塞，**不是编译内容、不是 DIY 资源、也不是 OOM**。
+
+当前 workflow 的规避方式就是把 ninja 输出全部重定向到文件，让实时日志体积保持在
+约 200 KiB / 2 小时，远离触发点。由此带来一个副作用：
+
+> 运行中的 job 用 `GET /actions/jobs/<id>/logs` 下载归档日志可能返回
+> `BlobNotFound` / 404 —— 因为 stdout 量太小，尚未触发归档分片上传。
+> **这不是失败信号**，完整日志会在步骤结束后作为 `build-log-<run号>` artifact 出现。
+
+判断编译是否还活着，看 Actions 页面实时日志里 `===== HEARTBEAT =====` 有没有每分钟
+刷新、`ninja progress` 有没有往上涨；不要依赖归档日志 API。若自托管 runner 或
+本地编译，则完全不受此问题影响。
 
 ### 方式二：本地 WSL2 编译
+
+本地没有 runner 的日志管道限制，也不会被 150 分钟超时打断。建议 WSL2 分配
+≥16 GiB 内存、≥120 GiB 可用磁盘；首次同步源码约 40–60 GiB。
 
 ```bash
 # 1. 拉取 OrangeFox 源码（fox_12.1 基底）
@@ -51,7 +112,8 @@ git clone https://gitlab.com/OrangeFox/sync.git ~/ofsync && cd ~/ofsync
 
 # 2. 放入设备树
 mkdir -p ~/fox_12.1/device/realme
-git clone -b main <本仓库地址> ~/fox_12.1/device/realme/RMXTARO
+git clone -b main https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5.git \
+  ~/fox_12.1/device/realme/RMXTARO
 
 # 3. 编译
 cd ~/fox_12.1
@@ -60,6 +122,11 @@ export ALLOW_MISSING_DEPENDENCIES=true LC_ALL=C FOX_BUILD_DEVICE=RMXTARO
 lunch twrp_RMXTARO-eng
 mka recoveryimage -j$(nproc)
 ```
+
+本地用 `-j$(nproc)` 会明显快于云端的 `-j1`；若出现 OOM，把并行度降到 `-j2` / `-j1`。
+另外本地编译时也要把 `recovery/root/twres/splash.xml` 与 `twres/images/Whiteink/`
+覆盖到 `bootable/recovery/gui/theme/portrait_hdpi/`，否则主题打包顺序可能用回上游
+splash（云端的 `Inject Whiteink UI overlay into theme source` 步骤就是干这件事）。
 
 产物：`out/target/product/RMXTARO/recovery.img`、
 `OrangeFox-R12.0-Unofficial-RMXTARO.zip`（已签名，含 `META-INF` / `magiskboot`）及对应 `.md5`。
@@ -71,25 +138,26 @@ mka recoveryimage -j$(nproc)
 
 ### 最小验证流程（只需 `recovery.img`，不动 vbmeta、不清数据）
 
-Windows PowerShell，路径换成你的实际位置：
+Windows PowerShell，路径换成你把镜像解压到的实际位置：
 
 ```powershell
 fastboot devices
-fastboot flash recovery "C:\Users\Lenovo\WorkBuddy\2026-11-08-23-12-29\build-output\recovery.img"
+fastboot flash recovery "C:\path\to\recovery.img"
 fastboot reboot recovery
 ```
 
-刷完校验一下：
+刷前先校验文件完整性，与 Release 里的 `.img.md5` / `.zip.md5` 内容比对：
 
 ```powershell
-Get-FileHash .\build-output\recovery.img -Algorithm SHA256
+Get-FileHash .\recovery.img -Algorithm MD5
+Get-FileHash .\recovery.img -Algorithm SHA256
 ```
 
 若 `fastboot reboot recovery` 无响应（部分 realme 机型不实现该命令），用
 `fastboot reboot` 并在震动的瞬间按住 **音量下**，或直接用电源 + 音量下组合键。
 
 > ⚠️ 只刷 `recovery.img` 是**非持久安装**：重启进一次系统后，原厂 recovery 可能被
-> 启动链/OTA 还原。长期使用必须做下面的完整安装。首次进入会要求输入锁屏密码解密
+> 启动链 / OTA 还原。长期使用必须做下面的完整安装。首次进入会要求输入锁屏密码解密
 > `/data`；解密失败不要 format data，先退回排查固件版本与 Keymaster 覆盖。
 
 ### 完整安装（需要 OrangeFox 签名 zip）
@@ -116,6 +184,29 @@ fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
 
 ⚠️ **禁止 `fastboot boot recovery.img`**：本机为 Virtual A/B 动态分区设备，临时启动
 环境不完整，会导致解密失败甚至变砖。必须 `flash` 进分区再重启。
+
+## 验证产物
+
+刷之前建议先确认自定义 UI 真的进了镜像，两种方式：
+
+**实机**（最直接）：开机画面应同时出现原狐头 logo、`OrangeFox` / `Recovery` 两行英文，
+以及上方的白墨吉祥物头像和「白墨(Whiteink)工作室」；进入后
+**高级（Advanced）→ 自定义设置（Custom settings）** 应能看到 5 个页面和简体中文界面。
+
+**离线解包**：`recovery.img` 是 Android boot image v4，偏移 4096 起是 LZ4-legacy
+**多 block** 压缩的 cpio。注意别把整段当单个 LZ4 block 解压（会得到乱码），
+需要逐 4 字节读取 block size 逐块解压再拼成 `ramdisk.cpio`，或直接用
+`magiskboot unpack` / `unpack_bootimg` 解包。展开后应存在：
+
+```text
+/sbin/maintainer.xml
+/twres/splash.xml
+/twres/images/Whiteink/*.png      # 8 张：banner / 3 张二维码 / 4 种头像尺寸
+/twres/languages/zh_CN.xml
+```
+
+> ⚠️ 不要手工解包再重打包 `recovery.img` 拿去刷，容易破坏签名与 AVB 结构；
+> 离线解包只用于检查内容。
 
 ## 白墨工作室自定义页面
 
@@ -149,19 +240,20 @@ Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG �
 | 酷安 | `https://www.coolapk.com/u/30264531` |
 | GitHub | `https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5`（**就是本仓库**） |
 
-想换链接/群号：改 PNG 里的二维码内容后覆盖同名文件即可；生成脚本用的参数是
-`qrcode` 的 `ERROR_CORRECT_M` + 4 模块静区，输出 480×480 整数倍模块尺寸，避免缩放糊掉。
+想换链接 / 群号：用 `qrcode` 重新生成对应 PNG 覆盖同名文件即可，参数保持
+`ERROR_CORRECT_M` + 4 模块静区 + 480×480 整数倍模块尺寸，避免缩放糊掉；
+改完记得按 [验证产物](#验证产物) 检查一遍。
 
 ### 白墨头像与开机画面
 
-用户提供的蓝白 Q 版形象已抠掉白底（连通域法，只清除与画布边缘相连的白色，
-角色身上的白色围巾/绒毛保留），导出为多尺寸透明 PNG：
+蓝白 Q 版吉祥物已抠掉白底（连通域法，只清除与画布边缘相连的白色，角色身上的
+白色围巾 / 绒毛保留），导出为多尺寸透明 PNG：
 
 | 文件 | 尺寸 | 用在哪 |
 | --- | --- | --- |
 | `splash_avatar.png` | 1080×1920 透明 | 启动画面：头像 + `白墨(Whiteink)工作室`，与狐头 logo 共用中心锚点 |
 | `avatar_card.png` | 984×300 | 「关于此 Recovery」页顶部：头像 + 署名 + 三个入口摘要 |
-| `avatar_small.png` | 150×137 | QQ群 / 酷安 / GitHub 三个二维码页右侧 |
+| `avatar_small.png` | 150×137 | QQ 群 / 酷安 / GitHub 三个二维码页右侧 |
 | `avatar_mini.png` | 96×88 | 维护者主页右下角 |
 
 `splash.xml` 是上游文件的完整副本，只多了一个 `<image>` 资源和一个 `<image>`
@@ -189,12 +281,43 @@ Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG �
    “skip all OrangeFox patches / Deleting AromaFM”。即本包**不含 AromaFM 与部分 OrangeFox
    附加 patch**（zip 内仍带 `sdcard/Fox/FoxFiles/Magisk.zip`）。R12.0 新 UI 属于
    `bootable/recovery`，不受此项影响；若需要 AromaFM 等功能，去掉该变量后重编。
+6. **CI 实时日志**：约 2 MiB 处可能 wedged，详见
+   [CI 已知问题](#ci-已知问题实时日志管道冻结)；这是 runner 侧限制，不影响本地编译。
+
+## 常见问题
+
+| 现象 | 说明 |
+| --- | --- |
+| 用 7-Zip / WinRAR 打开 `recovery.img`，看到 KernelSU 的 `.ko` 文件 | 正常。层级是 `recovery.img → LZ4 ramdisk(cpio) → FFiles/KernelSU/KernelSU_Installer.zip → .ko`；那是安装包里的嵌套文件，不是镜像坏了。ramdisk 中真正独立的 `.ko` 在 `vendor/lib/modules/1.1/` 下的高通驱动模块。 |
+| 进 recovery 后觉得 UI "不像新版" | R12.0 是渐进式界面升级，主色仍是 `#ed6f02`、底部导航仍是橙狐风格；Fox White / Fox Dark 主题可能需要手动切换。也可能根本没进 OrangeFox——确认看到 Fox logo、底部导航栏、版本号 `R12.0_1` 和解密 `/data` 提示。 |
+| Actions Artifact 匿名下载 401 / 特别慢 | 用 **Releases → Assets** 的直链，走 CDN、免登录。Artifact 只是备用。 |
+| 编译卡在 41–42% 长时间无输出 | 先看实时日志里的 `HEARTBEAT` 是否还在跳。若心跳也停了，属于 [CI 已知问题](#ci-已知问题实时日志管道冻结)，取消该 run 后用最新 workflow 重跑，或改用本地 WSL2 编译。 |
+| 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
+| `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
+
+## 维护约定
+
+- **触发编译**：push 到 `main` / `master` / `fox-12.1`，或在 Actions 页 `Run workflow`。
+  commit message 里带 `[skip ci]` 可跳过编译。
+- **不触发编译**：文档、UI 资源、二维码这类小改统一带 `[skip ci]`，攒够一批再编一次，
+  每次完整编译约 2 小时。
+- **发 Release 不会触发编译**：workflow 只监听 `push` / `workflow_dispatch`，
+  Pre-release 由构建成功后的步骤自行创建，避免「编译 → 发版 → 又编译一轮」。
+- **产物发布**：构建成功后由 `Collect build outputs` 归集到 `dist/`，再同时上传为
+  Artifact 和 Pre-release Assets。`~` 不会被 upload-artifact / gh-release 的 glob 展开，
+  所以路径一律用 `dist/*` 或 `${{ github.workspace }}/dist/*`。
+- **密钥安全**：云端编译只用 `GITHUB_TOKEN`；本地推送若用 PAT，一律通过一次性
+  `git -c http.extraHeader=...` 传入，**绝不写进仓库或文档**，用完及时 revoke。
+- **自定义资源**：所有 DIY 文件都在 `recovery/root/` 下，云编译会注入主题源；
+  不要直接改 `bootable/recovery`，否则下次同步源码会被覆盖。
 
 ## Credits
 
 - 设备树基于 [MisterZtr/recovery_device_realme_RMXTARO](https://github.com/MisterZtr/recovery_device_realme_RMXTARO)（`fox-12.1` 分支）
 - OrangeFox Recovery Project（TeamWin TWRP 衍生）
 - 原始贡献：Bot-cd-Crypton、hoangzk9as、Ctapchuk、Kychera22
+- 维护与定制：白墨 Whiteink · [酷安](https://www.coolapk.com/u/30264531) ·
+  [GitHub](https://github.com/Whiteink666) · QQ 群 287398984
 
 ## License
 
