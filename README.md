@@ -21,6 +21,8 @@
   `vendor/recovery` + `bootable/recovery` 提供。
 - 已修复：把 10 个 OPLUS `my_*` 逻辑分区补进 `AB_OTA_PARTITIONS`，消除 OTA 时报
   “logical partition not found” 的隐患（此前靠 `OF_IGNORE_LOGICAL_MOUNT_ERRORS` 掩盖）。
+- **云端编译已跑通**：Actions run `42509233113`（head `86bd1f5`）成功产出
+  `OrangeFox-R12.0-Unofficial-RMXTARO.img` / `.zip`，编译耗时 1h57m，`mka_rc=0`。
 
 ## 构建
 
@@ -30,7 +32,8 @@
 
 1. 把本仓库 **公开** 推送到你的 GitHub（OrangeFox 为 GPL-3.0，要求公开修改过的设备树）。
 2. 在仓库 **Actions** 页点 **Run workflow**（或 push 到 `main`/`master`/`fox-12.1` 分支）。
-3. 编译完成后，在 **Artifacts** 下载 `recovery.img`。
+3. 编译完成后，在 **Artifacts** 下载 `recovery.img`、已签名的 `OrangeFox-*.zip` 与
+   `.md5` 校验文件。先 `fastboot flash recovery`，进 recovery 后再刷 zip 完成持久化安装。
 
 > 云端编译使用 GitHub 自带的 `GITHUB_TOKEN`，**无需你提供任何个人密钥**。
 > 若免费 runner 磁盘/内存吃紧，可换用大磁盘或自托管 runner。
@@ -44,17 +47,18 @@ git clone https://gitlab.com/OrangeFox/sync.git ~/ofsync && cd ~/ofsync
 
 # 2. 放入设备树
 mkdir -p ~/fox_12.1/device/realme
-git clone -b fox-12.1 <本仓库地址> ~/fox_12.1/device/realme/RMXTARO
+git clone -b main <本仓库地址> ~/fox_12.1/device/realme/RMXTARO
 
 # 3. 编译
 cd ~/fox_12.1
 export ALLOW_MISSING_DEPENDENCIES=true LC_ALL=C FOX_BUILD_DEVICE=RMXTARO
 . build/envsetup.sh
 lunch twrp_RMXTARO-eng
-mka adbd recoveryimage -j$(nproc)
+mka recoveryimage -j$(nproc)
 ```
 
-产物：`out/target/product/RMXTARO/recovery.img`
+产物：`out/target/product/RMXTARO/recovery.img`、
+`OrangeFox-R12.0-Unofficial-RMXTARO.zip`（已签名，含 `META-INF` / `magiskboot`）及对应 `.md5`。
 
 ## 刷入
 
@@ -88,6 +92,10 @@ fastboot reboot recovery
    直接用机器 5.10 内核。刷错 150W↔240W 或 A13↔A16 固件会起不来。
 3. **OPLUS 私有分区**：已补 `my_*` 到 `AB_OTA_PARTITIONS`，OTA 不再报逻辑分区缺失。
 4. **FRP**：`twrp.flags` 已加 `/frp` 备份入口；刷完若无法设置密码/指纹，进 fastboot 清 FRP。
+5. **Vanilla 构建**：`vendorsetup.sh` 设了 `FOX_VANILLA_BUILD=1`，构建日志会出现
+   “skip all OrangeFox patches / Deleting AromaFM”。即本包**不含 AromaFM 与部分 OrangeFox
+   附加 patch**（zip 内仍带 `sdcard/Fox/FoxFiles/Magisk.zip`）。R12.0 新 UI 属于
+   `bootable/recovery`，不受此项影响；若需要 AromaFM 等功能，去掉该变量后重编。
 
 ## Credits
 
