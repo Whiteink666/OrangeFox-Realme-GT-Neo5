@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Whiteink maintainer pages for OrangeFox R12.0 / realme GT Neo5 (RMXTARO).
+
+  Why this file alone is enough:
+    * ui.xml already has  <xml name="/sbin/maintainer.xml" default="/twres/pages/dummy.xml"/>
+    * pages/advanced.xml shows the "Custom settings" entry only when
+      <condition var1="fileexists" var2="/sbin/maintainer.xml"/> is true
+  So no upstream bootable/recovery source needs to be patched. This file is
+  copied into the ramdisk /sbin/ by the standard device-tree recovery/root rule.
+
+  Author string (rendered as banner.png because wqy-microhei has no U+1F43E):
+    🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室
+
+  Images live in /twres/images/Whiteink/ (this tree:
+  recovery/root/twres/images/Whiteink/). Filenames intentionally have no
+  extension - that matches upstream images.xml resource conventions.
+
+  Entry points:
+    QQ group   : 287398984  (mqqapi group card URL encoded in qr_qq.png)
+    Coolapk    : https://www.coolapk.com/u/30264531
+    GitHub     : https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5
+-->
+<recovery>
+	<resources>
+		<image name="whiteink_banner"        filename="Whiteink/banner"        retainaspect="1"/>
+		<image name="whiteink_qr_qq"         filename="Whiteink/qr_qq"         retainaspect="1"/>
+		<image name="whiteink_qr_coolapk"    filename="Whiteink/qr_coolapk"    retainaspect="1"/>
+		<image name="whiteink_qr_github"     filename="Whiteink/qr_github"     retainaspect="1"/>
+	</resources>
+
+	<pages>
+		<!-- ==================== Hub: Advanced -> Custom settings ==================== -->
+		<page name="maintainer">
+			<action>
+				<action function="set">nav_panel_id=3</action>
+				<action function="set">tw_back=advanced</action>
+			</action>
+
+			<template name="base"/>
+			<template name="gestures"/>
+
+			<text style="text_ab_title">
+				<placement x="%col1_x_indent%" y="%ab_bc_y%"/>
+				<text>白墨工作室</text>
+			</text>
+
+			<image>
+				<placement x="48" y="%row1_1_y%"/>
+				<image resource="whiteink_banner"/>
+			</image>
+
+			<text style="caption_hl">
+				<placement x="%gl_text_x%" y="%row2_1_y%"/>
+				<text>作者与社区入口</text>
+			</text>
+
+			<listbox style="group_list">
+				<placement x="0" y="%row2_2_y%" w="%screen_w%" h="%lb_group_l4%"/>
+				<listitem name="QQ 群 · 287398984">
+					<icon res="group"/>
+					<action function="page">whiteink_qq</action>
+				</listitem>
+				<listitem name="酷安 · @白墨Whiteink">
+					<icon res="link"/>
+					<action function="page">whiteink_coolapk</action>
+				</listitem>
+				<listitem name="GitHub · 本设备树仓库">
+					<icon res="build"/>
+					<action function="page">whiteink_github</action>
+				</listitem>
+				<listitem name="关于此 Recovery">
+					<icon res="info"/>
+					<action function="page">whiteink_about</action>
+				</listitem>
+			</listbox>
+
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_1_y%"/>
+				<text>作者：白墨 Whiteink · 白墨(Whiteink)工作室</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_3_y%"/>
+				<text>设备：realme GT Neo5 · RMX3706 / RMX3708 · 骁龙 8+ Gen 1</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row6_2_y%"/>
+				<text>选择上方条目查看二维码，用另一台手机扫码即可访问</text>
+			</text>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="back"/>
+				<action function="page">advanced</action>
+			</action>
+		</page>
+
+		<!-- ==================== QQ group ==================== -->
+		<page name="whiteink_qq">
+			<action>
+				<action function="set">nav_panel_id=3</action>
+				<action function="set">tw_back=maintainer</action>
+			</action>
+
+			<template name="base"/>
+			<template name="gestures"/>
+
+			<text style="text_ab_title">
+				<placement x="%col1_x_indent%" y="%ab_bc_y%"/>
+				<text>QQ 群</text>
+			</text>
+
+			<image>
+				<placement x="300" y="%row1_1_y%"/>
+				<image resource="whiteink_qr_qq"/>
+			</image>
+
+			<text style="caption_hl">
+				<placement x="%gl_text_x%" y="%row4_2_y%"/>
+				<text>米饭多加水 X 白墨(Whiteink)工作室</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_1_y%"/>
+				<text>群号：287398984</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_3_y%"/>
+				<text>用手机 QQ / 微信 扫一扫上方二维码，可直接打开群资料卡</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row6_2_y%"/>
+				<text>也可以在 QQ 里手动搜索群号 287398984</text>
+			</text>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="back"/>
+				<action function="page">maintainer</action>
+			</action>
+		</page>
+
+		<!-- ==================== Coolapk ==================== -->
+		<page name="whiteink_coolapk">
+			<action>
+				<action function="set">nav_panel_id=3</action>
+				<action function="set">tw_back=maintainer</action>
+			</action>
+
+			<template name="base"/>
+			<template name="gestures"/>
+
+			<text style="text_ab_title">
+				<placement x="%col1_x_indent%" y="%ab_bc_y%"/>
+				<text>酷安</text>
+			</text>
+
+			<image>
+				<placement x="300" y="%row1_1_y%"/>
+				<image resource="whiteink_qr_coolapk"/>
+			</image>
+
+			<text style="caption_hl">
+				<placement x="%gl_text_x%" y="%row4_2_y%"/>
+				<text>@白墨Whiteink</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_1_y%"/>
+				<text>https://www.coolapk.com/u/30264531</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_3_y%"/>
+				<text>扫码打开作者酷安主页，或在酷安内搜索 @白墨Whiteink</text>
+			</text>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="back"/>
+				<action function="page">maintainer</action>
+			</action>
+		</page>
+
+		<!-- ==================== GitHub (this repository) ==================== -->
+		<page name="whiteink_github">
+			<action>
+				<action function="set">nav_panel_id=3</action>
+				<action function="set">tw_back=maintainer</action>
+			</action>
+
+			<template name="base"/>
+			<template name="gestures"/>
+
+			<text style="text_ab_title">
+				<placement x="%col1_x_indent%" y="%ab_bc_y%"/>
+				<text>GitHub</text>
+			</text>
+
+			<image>
+				<placement x="300" y="%row1_1_y%"/>
+				<image resource="whiteink_qr_github"/>
+			</image>
+
+			<text style="caption_hl">
+				<placement x="%gl_text_x%" y="%row4_2_y%"/>
+				<text>Whiteink666/OrangeFox-Realme-GT-Neo5</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_1_y%"/>
+				<text>https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_3_y%"/>
+				<text>本 Recovery 的设备树、构建脚本与自定义 UI 全部开源在此仓库</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row6_2_y%"/>
+				<text>欢迎提 Issue / PR，一起完善 GT Neo5 的第三方 Recovery</text>
+			</text>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="back"/>
+				<action function="page">maintainer</action>
+			</action>
+		</page>
+
+		<!-- ==================== About ==================== -->
+		<page name="whiteink_about">
+			<action>
+				<action function="set">nav_panel_id=3</action>
+				<action function="set">tw_back=maintainer</action>
+			</action>
+
+			<template name="base"/>
+			<template name="gestures"/>
+
+			<text style="text_ab_title">
+				<placement x="%col1_x_indent%" y="%ab_bc_y%"/>
+				<text>关于此 Recovery</text>
+			</text>
+
+			<image>
+				<placement x="48" y="%row1_1_y%"/>
+				<image resource="whiteink_banner"/>
+			</image>
+
+			<text style="caption_hl">
+				<placement x="%gl_text_x%" y="%row2_2_y%"/>
+				<text>OrangeFox R12.0 · Unofficial · Whiteink Build</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row3_1_y%"/>
+				<text>机型：国行 realme GT Neo5（RMX3706 / RMX3708，代号 senna）</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row3_3_y%"/>
+				<text>平台：骁龙 8+ Gen 1 / SM8475 · 内核 5.10（非 GKI）</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row4_2_y%"/>
+				<text>分区：Virtual A/B，recovery 位于 vendor_boot / recovery</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_1_y%"/>
+				<text>默认语言：简体中文（可在 设置 - 语言 中切换）</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row5_3_y%"/>
+				<text>自定义页面：高级 - 自定义设置（maintainer.xml hook）</text>
+			</text>
+			<text style="text_body1">
+				<placement x="%gl_text_x%" y="%row6_2_y%"/>
+				<text>源码：github.com/Whiteink666/OrangeFox-Realme-GT-Neo5</text>
+			</text>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="back"/>
+				<action function="page">maintainer</action>
+			</action>
+		</page>
+	</pages>
+</recovery>
