@@ -92,8 +92,13 @@ Get-FileHash .\build-output\recovery.img -Algorithm SHA256
 
 进 recovery 后刷 `OrangeFox-R12.0-Unofficial-RMXTARO.zip`。这是 OrangeFox 官方
 R12.0 的**必要步骤**——官方明确写「do NOT just flash the recovery image in the zip
-and stop there」，只刷 img 不算安装完成。OF 会按 `OF_PATCH_AVB20 := 1` 自动处理
-vbmeta / dm-verity，并把自身固化到启动链（含写入非活动 slot，切槽后仍在）。
+and stop there」，只刷 img 不算安装完成。zip 会把 OrangeFox 固化到启动链（含写入
+非活动 slot，切槽后仍在）。
+
+⚠️ 本树是 `FOX_VANILLA_BUILD=1` 的 vanilla 构建。按官方 build_vars 文档，该模式会
+跳过全部 OrangeFox patches 并自动启用 `OF_SKIP_ORANGEFOX_PROCESS`，且
+`OF_PATCH_AVB20` 在 vanilla 下被忽略（对 A/B 设备本来也不生效）。**不要指望 zip
+替你处理 vbmeta / dm-verity**，请保持 vbmeta 与当前固件一致。
 官方还要求：刷任何 ROM 之后都要立刻重刷一次 OrangeFox，并始终先做完整备份。
 
 **只有确认系统因 dm-verity 校验起不来时**，才需要另刷 `vbmeta.img`（需自行从与当前
