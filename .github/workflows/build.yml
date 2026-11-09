@@ -1,11 +1,17 @@
 name: OrangeFox Recovery (RMXTARO / GT Neo5)
 
+# Needed so the successful build can create a prerelease and upload its
+# assets. actions/checkout only needs contents: read, which is implied.
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main, master, fox-12.1]
   workflow_dispatch:
-  release:
-    types: [published]
+  # Intentionally NO `release: published` trigger: creating a release from
+  # this job would start ANOTHER ~2h build of the exact same commit.
+  # The build publishes its own prerelease instead (see the last step).
 
 jobs:
   build:
@@ -208,26 +214,60 @@ jobs:
           path: ~/ofox_build.log
           if-no-files-found: warn
 
+      - name: Collect build outputs
+        # Stage everything in a workspace-relative directory. `~/...` is NOT
+        # expanded by the glob engine used by upload-artifact / gh-release,
+        # so those patterns would silently match nothing.
+        run: |
+          set -e
+          OUT="$HOME/fox_12.1/out/target/product/RMXTARO"
+          DIST="$GITHUB_WORKSPACE/dist"
+          rm -rf "$DIST"
+          mkdir -p "$DIST"
+          cp -f "$OUT/recovery.img" "$DIST/"
+          echo "=== OrangeFox zip / checksums in OUT ==="
+          ls -l "$OUT"/OrangeFox-*.zip "$OUT"/OrangeFox-*.zip.md5 "$OUT"/*.img.md5 2>/dev/null || true
+          for f in "$OUT"/OrangeFox-*.zip "$OUT"/OrangeFox-*.zip.md5 "$OUT"/*.img.md5; do
+            if [ -f "$f" ]; then cp -f "$f" "$DIST/"; fi
+          done
+          echo "=== dist/ ==="
+          ls -lh "$DIST"
+          test -s "$DIST/recovery.img"
+          echo "=== sha256 ==="
+          (cd "$DIST" && sha256sum *)
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: OrangeFox-RMXTARO-${{ github.run_number }}
           # recovery.img alone is NOT enough on a Virtual A/B device: after
           # fastboot flash + reboot recovery, the signed OrangeFox zip must be
-          # flashed from recovery to make the install persistent. Run 5 only
-          # uploaded recovery.img, so ship the zip and checksums as well.
-          path: |
-            ~/fox_12.1/out/target/product/RMXTARO/recovery.img
-            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.zip
-            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.zip.md5
-            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.img.md5
+          # flashed from recovery to make the install persistent.
+          path: dist/*
           if-no-files-found: error
+          retention-days: 30
 
-      - name: Publish release
-        if: github.event_name == 'release'
+      - name: Publish prerelease with downloadable assets
+        # Release assets are served from GitHub's CDN and can be downloaded
+        # anonymously; Actions artifacts require a login (401 for guests).
+        if: ${{ success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ofox-RMXTARO-r${{ github.run_number }}
+          name: OrangeFox R12.0 · RMXTARO · run ${{ github.run_number }}
+          prerelease: true
+          body: |
+            自动测试构建 · realme GT Neo5 / GT3（RMXTARO / senna）· OrangeFox R12.0
+
+            含白墨工作室自定义页面（QQ 群 / 酷安 / GitHub 入口、关于页、开机画面头像），
+            默认语言为简体中文。
+
+            刷入：解锁 bootloader 后 `fastboot flash recovery recovery.img`，
+            `fastboot reboot recovery`；首次进入 OrangeFox 后再刷入
+            `OrangeFox-*.zip` 完成完整安装。禁止使用 `fastboot boot recovery.img`。
+            刷前请备份，固件版本需与镜像匹配。
           files: |
-            ~/fox_12.1/out/target/product/RMXTARO/recovery.img
-            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.zip
-            ~/fox_12.1/out/target/product/RMXTARO/OrangeFox-*.zip.md5
+            ${{ github.workspace }}/dist/recovery.img
+            ${{ github.workspace }}/dist/OrangeFox-*.zip
+            ${{ github.workspace }}/dist/OrangeFox-*.zip.md5
+            ${{ github.workspace }}/dist/*.img.md5
