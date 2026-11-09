@@ -16,6 +16,12 @@
   recovery/root/twres/images/Whiteink/). Filenames intentionally have no
   extension - that matches upstream images.xml resource conventions.
 
+  Whiteink mascot: the user-supplied chibi fox/cat artwork, background removed
+  and exported as transparent PNGs. It appears on the boot splash (see
+  recovery/root/twres/splash.xml), on the About page (avatar_card.png), as a
+  corner badge on the hub (avatar_mini.png) and beside each QR page
+  (avatar_small.png).
+
   Entry points:
     QQ group   : 287398984  (mqqapi group card URL encoded in qr_qq.png)
     Coolapk    : https://www.coolapk.com/u/30264531
@@ -27,6 +33,9 @@
 		<image name="whiteink_qr_qq"         filename="Whiteink/qr_qq"         retainaspect="1"/>
 		<image name="whiteink_qr_coolapk"    filename="Whiteink/qr_coolapk"    retainaspect="1"/>
 		<image name="whiteink_qr_github"     filename="Whiteink/qr_github"     retainaspect="1"/>
+		<image name="whiteink_avatar_card"   filename="Whiteink/avatar_card"   retainaspect="1"/>
+		<image name="whiteink_avatar_small"  filename="Whiteink/avatar_small"  retainaspect="1"/>
+		<image name="whiteink_avatar_mini"   filename="Whiteink/avatar_mini"   retainaspect="1"/>
 	</resources>
 
 	<pages>
@@ -79,6 +88,11 @@
 				<placement x="%gl_text_x%" y="%row5_1_y%"/>
 				<text>作者：白墨 Whiteink · 白墨(Whiteink)工作室</text>
 			</text>
+
+			<image>
+				<placement x="892" y="%row5_1_y%"/>
+				<image resource="whiteink_avatar_mini"/>
+			</image>
 			<text style="text_body1">
 				<placement x="%gl_text_x%" y="%row5_3_y%"/>
 				<text>设备：realme GT Neo5 · RMX3706 / RMX3708 · 骁龙 8+ Gen 1</text>
@@ -116,6 +130,11 @@
 			<image>
 				<placement x="300" y="%row1_1_y%"/>
 				<image resource="whiteink_qr_qq"/>
+			</image>
+
+			<image>
+				<placement x="820" y="%row1_2_y%"/>
+				<image resource="whiteink_avatar_small"/>
 			</image>
 
 			<text style="caption_hl">
@@ -165,6 +184,11 @@
 				<image resource="whiteink_qr_coolapk"/>
 			</image>
 
+			<image>
+				<placement x="820" y="%row1_2_y%"/>
+				<image resource="whiteink_avatar_small"/>
+			</image>
+
 			<text style="caption_hl">
 				<placement x="%gl_text_x%" y="%row4_2_y%"/>
 				<text>@白墨Whiteink</text>
@@ -206,6 +230,11 @@
 			<image>
 				<placement x="300" y="%row1_1_y%"/>
 				<image resource="whiteink_qr_github"/>
+			</image>
+
+			<image>
+				<placement x="820" y="%row1_2_y%"/>
+				<image resource="whiteink_avatar_small"/>
 			</image>
 
 			<text style="caption_hl">
@@ -250,30 +279,27 @@
 				<text>关于此 Recovery</text>
 			</text>
 
+			<!-- author card: avatar + studio name + link summary, 984x300 -->
 			<image>
 				<placement x="48" y="%row1_1_y%"/>
-				<image resource="whiteink_banner"/>
+				<image resource="whiteink_avatar_card"/>
 			</image>
 
 			<text style="caption_hl">
-				<placement x="%gl_text_x%" y="%row2_2_y%"/>
+				<placement x="%gl_text_x%" y="%row3_1_y%"/>
 				<text>OrangeFox R12.0 · Unofficial · Whiteink Build</text>
 			</text>
 			<text style="text_body1">
-				<placement x="%gl_text_x%" y="%row3_1_y%"/>
+				<placement x="%gl_text_x%" y="%row3_3_y%"/>
 				<text>机型：国行 realme GT Neo5（RMX3706 / RMX3708，代号 senna）</text>
 			</text>
 			<text style="text_body1">
-				<placement x="%gl_text_x%" y="%row3_3_y%"/>
+				<placement x="%gl_text_x%" y="%row4_2_y%"/>
 				<text>平台：骁龙 8+ Gen 1 / SM8475 · 内核 5.10（非 GKI）</text>
 			</text>
 			<text style="text_body1">
-				<placement x="%gl_text_x%" y="%row4_2_y%"/>
-				<text>分区：Virtual A/B，recovery 位于 vendor_boot / recovery</text>
-			</text>
-			<text style="text_body1">
 				<placement x="%gl_text_x%" y="%row5_1_y%"/>
-				<text>默认语言：简体中文（可在 设置 - 语言 中切换）</text>
+				<text>分区：Virtual A/B · 默认语言：简体中文</text>
 			</text>
 			<text style="text_body1">
 				<placement x="%gl_text_x%" y="%row5_3_y%"/>

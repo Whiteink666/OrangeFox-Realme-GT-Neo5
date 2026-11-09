@@ -97,11 +97,12 @@ jobs:
           df -h / || true
 
       - name: Inject Whiteink UI overlay into theme source
-        # recovery/root/ already puts maintainer.xml into the ramdisk /sbin/.
-        # The GUI theme /twres/ is assembled from gui/theme/portrait_hdpi at
-        # build time, so seed the PNGs into the source too - this keeps the
-        # overlay reproducible on every cloud build regardless of copy order,
-        # and never forks/patches upstream bootable/recovery.
+        # recovery/root/ already puts maintainer.xml into the ramdisk /sbin/
+        # and our splash.xml / PNGs into /twres/. The GUI theme /twres/ is
+        # assembled from gui/theme/portrait_hdpi at build time, so also seed
+        # the same files into the source - this keeps the overlay reproducible
+        # on every cloud build regardless of copy order, and never forks or
+        # patches upstream bootable/recovery permanently.
         run: |
           ROOT="$HOME/fox_12.1"
           SRC="$GITHUB_WORKSPACE/recovery/root"
@@ -109,14 +110,18 @@ jobs:
           if [ -n "$THEME_DIR" ] && [ -d "$THEME_DIR/images" ]; then
             mkdir -p "$THEME_DIR/images/Whiteink"
             cp -f "$SRC/twres/images/Whiteink/"*.png "$THEME_DIR/images/Whiteink/"
-            echo "Overlay seeded into $THEME_DIR/images/Whiteink"
+            cp -f "$SRC/twres/splash.xml" "$THEME_DIR/splash.xml"
+            echo "Overlay seeded into $THEME_DIR (images/Whiteink + splash.xml)"
           else
             echo "WARN: portrait_hdpi theme source not found; relying on recovery/root copy only"
           fi
           echo "=== Whiteink overlay verification ==="
-          ls -l "$SRC/sbin/maintainer.xml" "$SRC/twres/images/Whiteink/"*.png
+          ls -l "$SRC/sbin/maintainer.xml" "$SRC/twres/splash.xml" "$SRC/twres/images/Whiteink/"*.png
           echo -n "custom pages: "
           grep -c '<page name=' "$SRC/sbin/maintainer.xml"
+          echo -n "splash avatar hook: "
+          grep -c 'whiteink_splash_avatar' "$SRC/twres/splash.xml"
+          grep -q 'whiteink_splash_avatar' "$SRC/twres/splash.xml"
 
       - name: Build recovery
         # GitHub Actions runs steps with `bash -e` by default. AOSP envsetup.sh

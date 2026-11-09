@@ -127,8 +127,9 @@ fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
 | 内容 | 位置 |
 | --- | --- |
 | 页面 / 按钮 / 文案 | `recovery/root/sbin/maintainer.xml`（5 个页面：`maintainer`、`whiteink_qq`、`whiteink_coolapk`、`whiteink_github`、`whiteink_about`） |
-| 作者横幅 + 3 张二维码 | `recovery/root/twres/images/Whiteink/*.png` |
-| 云编译注入（防止 twres 生成顺序覆盖资源） | `.github/workflows/build.yml` → `Inject Whiteink UI overlay into theme source` |
+| 作者横幅 / 头像 / 二维码 / 开机叠加图 | `recovery/root/twres/images/Whiteink/*.png` |
+| **开机启动画面** | `recovery/root/twres/splash.xml`（保留原狐头 logo 与 `OrangeFox` / `Recovery` 英文，叠加白墨头像 + 工作室名） |
+| 云编译注入（防止 twres 生成顺序覆盖资源） | `.github/workflows/build.yml` → `Inject Whiteink UI overlay into theme source`（同时覆盖主题源的 `splash.xml`） |
 | 默认语言 | `BoardConfig.mk` → `TW_DEFAULT_LANGUAGE := zh_CN`（仍可在 设置 → 语言 切换） |
 | 署名 / 版本 | `fox_RMXTARO.mk` → `OF_MAINTAINER := Whiteink`、`FOX_MAINTAINER_PATCH_VERSION := 1` |
 
@@ -147,9 +148,29 @@ Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG �
 想换链接/群号：改 PNG 里的二维码内容后覆盖同名文件即可；生成脚本用的参数是
 `qrcode` 的 `ERROR_CORRECT_M` + 4 模块静区，输出 480×480 整数倍模块尺寸，避免缩放糊掉。
 
+### 白墨头像与开机画面
+
+用户提供的蓝白 Q 版形象已抠掉白底（连通域法，只清除与画布边缘相连的白色，
+角色身上的白色围巾/绒毛保留），导出为多尺寸透明 PNG：
+
+| 文件 | 尺寸 | 用在哪 |
+| --- | --- | --- |
+| `splash_avatar.png` | 1080×1920 透明 | 启动画面：头像 + `白墨(Whiteink)工作室`，与狐头 logo 共用中心锚点 |
+| `avatar_card.png` | 984×300 | 「关于此 Recovery」页顶部：头像 + 署名 + 三个入口摘要 |
+| `avatar_small.png` | 150×137 | QQ群 / 酷安 / GitHub 三个二维码页右侧 |
+| `avatar_mini.png` | 96×88 | 维护者主页右下角 |
+
+`splash.xml` 是上游文件的完整副本，只多了一个 `<image>` 资源和一个 `<image>`
+元素，**原有狐头 logo 和 `OrangeFox` / `Recovery` 两行英文原样保留**。中文工作室名
+直接画进 PNG，因为 splash 用的 Inter 字体没有中文字形。
+
+> `OF_NO_SPLASH_CHANGE := 1` 的准确含义（官方 build_vars）：
+> "set this to 1 to disable changing the splash image" —— 只禁用**在 recovery 里运行时**
+> 更换开机图，不阻止编译期覆盖。所以自定义 splash 必须编译进 recovery，运行后在
+> 设置里是换不了的，这是预期行为。
+
 后续还能加的（尚未做）：`themes/accent.xml` 改专属配色、`FOX_USE_MISANS_FONTS := 1`
-换中文字体、整套 SVG 图标替换、开机 splash（注意本树设了 `OF_NO_SPLASH_CHANGE := 1`，
-**开机图必须编译进 recovery**，运行时换无效）。
+换中文字体、整套 SVG 图标替换、`twres/credits.txt` 追加白墨署名。
 
 ## 已知注意事项
 

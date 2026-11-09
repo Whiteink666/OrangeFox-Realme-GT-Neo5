@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<!--
+  Custom OrangeFox splash for the Whiteink build (realme GT Neo5 / RMXTARO).
+
+  This is a full copy of upstream gui/theme/portrait_hdpi/splash.xml with ONE
+  added image resource and ONE added <image> element. The original OrangeFox
+  fox logo and the "OrangeFox" / "Recovery" English lines are kept untouched.
+
+  The avatar + studio name are baked into Whiteink/splash_avatar.png, a
+  1080x1920 fully transparent PNG placed at the same centre anchor as the fox
+  logo. That keeps the relative layout stable regardless of the device's real
+  screen height, and avoids adding a Chinese font to the splash (the bundled
+  Inter fonts contain no CJK glyphs).
+
+  OF_NO_SPLASH_CHANGE := 1 only disables changing the splash from inside
+  recovery at runtime (official build_vars: "set this to 1 to disable changing
+  the splash image"). It does NOT prevent a build-time overlay like this one.
+
+  Installation (both paths carry the identical file):
+    * recovery/root/twres/splash.xml -> copied into the ramdisk /twres/
+    * .github/workflows/build.yml    -> overwrites
+      bootable/recovery/gui/theme/portrait_hdpi/splash.xml after source sync
+-->
+<recovery>
+	<details>
+		<resolution width="1080" h="1920"/>
+		<themeversion>3</themeversion>
+	</details>
+
+	<resources>
+		<image name="splash_logo" filename="SVG/Logos/logo_o.svg" retainaspect="1" scale="2.0"/>
+		<image name="splash_bg" filename="Splash/user" retainaspect="1"/>
+		<image name="whiteink_splash_avatar" filename="Whiteink/splash_avatar" retainaspect="1"/>
+		<font name="of" filename="InterDisplay-Medium.ttf" size="64"/>
+		<font name="recovery" filename="InterDisplay-Regular.ttf" size="52"/>
+	</resources>
+
+	<variables>
+		<variable name="of" value="%screen_h%-400"/>
+		<variable name="rec" value="%screen_h%-320"/>
+		<variable name="screen_width" value="1080"/>
+		<variable name="screen_height" value="1920"/>
+		<variable name="header_color" value="#000000"/>
+		<variable name="background_color" value="#000000"/>
+	</variables>
+
+	<pages>
+		<page name="splash">
+			<background color="%background_color%"/>
+
+			<fill color="%header_color%">
+				<placement x="0" y="0" w="%screen_width%" h="%screen_height%"/>
+			</fill>
+
+			<image>
+				<image resource="splash_bg"/>
+				<placement x="540" y="%center_y%" placement="4"/>
+			</image>
+
+			<!-- Whiteink avatar + studio name, above the fox logo -->
+			<image>
+				<image resource="whiteink_splash_avatar"/>
+				<placement x="540" y="%center_y%" placement="4"/>
+			</image>
+
+			<image>
+				<image resource="splash_logo"/>
+				<placement x="540" y="%center_y%" placement="4"/>
+			</image>
+
+			<text style="menu_text">
+				<placement x="540" y="%of%" placement="4"/>
+				<font resource="of" color="#ffffff"/>
+				<text>OrangeFox</text>
+			</text>
+
+			<text style="menu_text">
+				<placement x="540" y="%rec%" placement="4"/>
+				<font resource="recovery" color="#ffffff"/>
+				<text>Recovery</text>
+			</text>
+		</page>
+	</pages>
+</recovery>
