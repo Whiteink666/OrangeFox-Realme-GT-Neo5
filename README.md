@@ -350,10 +350,12 @@ adb shell /sbin/setgovernor performance
 ### 为什么 r11 仍是「转子震感 + 滑动卡」
 
 > [!IMPORTANT]
-> **r11 及更早版本的马达接线没有打中根因。** 从 r10 成品解出的
-> `system/lib64/libminuitwrp.so` 中含有 `IVibrator/default`、
-> `AServiceManager_getService`、`fromBinder`，却**完全没有 `perform` / `Effect`**——
-> 马达 HAL 一直在，但 UI 一次都没调用过设备里预置的 RichTap 波形。
+> **r11 及更早版本的马达接线没有打中根因。** 上游 OrangeFox 12.1 的
+> `bootable/recovery/minuitwrp/events.cpp` 里，`vibrate()` 的 AIDL 分支只调
+> `vib->on(timeout_ms, nullptr)`，**没有任何 `perform()` 调用**；从 r10 / r11 成品解出的
+> `libminuitwrp.so` 只能看到 `IVibrator/default`、`fromBinder`（HAL 查找）和
+> `pthread_create` / `std::thread::detach`（每击建线程）。
+> 马达 HAL 一直在，但 UI 一次都没用过设备里预置的 RichTap 波形。
 
 上游 `bootable/recovery/minuitwrp/events.cpp` 的 `vibrate(int timeout_ms)` 在 AIDL 分支做的是：
 
@@ -384,8 +386,14 @@ vib->on((uint32_t)timeout_ms, nullptr);   // 固定振幅、按毫秒长震
 > manifest 一致），补它等于没改；后者正是「每击建线程」的元凶。
 
 > [!TIP]
-> 验证 r12 是否真的生效：解出 `system/lib64/libminuitwrp.so`，
-> `strings` 里应能找到 `perform` / `Effect`，而不是像 r10/r11 那样只有 `on()`。
+> **怎么验证 r12 真的生效**：`perform()` 是 AIDL 纯虚接口经 vtable 调用，
+> `Effect` 是编译期枚举常量，**两者都不会在 `.so` 里留下明文字符串**，所以别用
+> `strings | grep perform` 判断。正确做法是把 r12 与 r11 的
+> `system/lib64/libminuitwrp.so` 做符号差集：r12 应**新增**
+> `std::mutex::lock/unlock`、`std::chrono::steady_clock::now`、
+> `std::shared_ptr<…IVibrator>` 的析构符号，并让 `pthread_create`、
+> `std::thread::detach`、`__thread_struct` 全部**消失**（r11 恰好相反）。
+> 这分别对应「缓存 HAL 代理 + 节流 + 锁」和「干掉每击建线程」。
 
 > [!IMPORTANT]
 > **144 Hz 不是靠 `BoardConfig.mk` 声明出来的。** recovery 没有 SurfaceFlinger /
@@ -461,7 +469,7 @@ adb shell "cat /sys/class/graphics/fb0/dynamic_fps 2>/dev/null"
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
 | 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；已默认锁高性能，再关掉手势导航通常最有效。r12 起还去掉了每次触摸的 binder 查找与新建线程。 |
-| 线性马达摸起来还是转子那种「嗡嗡」感 | r11 及更早版本只调了 `on(ms)`，从没调过 `perform(CLICK)` 波形；见 [硬件适配](#硬件适配)。r12 已重写 `vibrate()`，可在 `libminuitwrp.so` 里检查 `perform` / `Effect` 字符串确认。 |
+| 线性马达摸起来还是转子那种「嗡嗡」感 | r11 及更早版本只调了 `on(ms)`，从没调过 `perform(CLICK)` 波形；见 [硬件适配](#硬件适配)。r12 已重写 `vibrate()`，可用 `libminuitwrp.so` 的符号差集确认（mutex/chrono/shared_ptr 新增、`pthread_create` 消失）。 |
 | 144 Hz 没看出来 / 面板刷新率不生效 | 面板刷新率 ≠ UI 帧率；recovery 按需重绘，`fox_refresh.sh` 也只在内核明确广告 144 Hz 时才写，节点不存在就静默跳过。见 [硬件适配](#硬件适配)。 |
 
 ---
