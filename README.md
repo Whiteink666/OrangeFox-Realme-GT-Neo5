@@ -28,7 +28,7 @@
 
 **构建与维护** · [构建](#构建) · [维护约定](#维护约定) · [常见问题](#常见问题)
 
-**定制内容** · [白墨工作室自定义页面](#白墨工作室自定义页面) · [UI 流畅度](#ui-流畅度)
+**定制内容** · [白墨工作室自定义页面](#白墨工作室自定义页面) · [UI 流畅度](#ui-流畅度) · [硬件适配](#硬件适配)
 
 **其他** · [已知注意事项](#已知注意事项) · [Credits](#credits) · [License](#license)
 
@@ -337,6 +337,52 @@ adb shell /sbin/setgovernor performance
 
 ---
 
+## 硬件适配
+
+这两套驱动**设备树里本来就有**，本轮做的是把它们接进启动链，而不是移植驱动：
+
+| 组件 | 设备树里已有的文件 | 本轮接线 |
+| --- | --- | --- |
+| X 轴线性马达 | `vendor/lib/modules/1.1/aw8697.ko`（Awinic AW8697）、`/dev/awinic_haptic`、`system/bin/realme.vibrator.service`（AIDL `IVibrator` V2）、`aac_richtap.config` + 809/815 波形、`IVibrator/default` VINTF manifest | 加进 `TW_LOAD_VENDOR_MODULES` 显式 insmod；补 `TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME`；init 里 `wait /dev/awinic_haptic 2` 之后再 `start realme.vibrator` |
+| 屏幕面板 | `vendor/lib/modules/1.1/panel_event_notifier.ko`、`vendor.display.config@1.0/2.0`、`TW_BRIGHTNESS_PATH` | 加进 `TW_LOAD_VENDOR_MODULES`；新增 `sbin/fox_refresh.sh` 做保守的 144 Hz 探测 |
+
+> [!IMPORTANT]
+> **144 Hz 不是靠 `BoardConfig.mk` 声明出来的。** recovery 没有 SurfaceFlinger /
+> DisplayManager / SettingsProvider，`settings put system peak_refresh_rate 144`
+> 在这里完全无效；面板扫描模式由内核 DRM / panel 驱动决定。`TW_FRAMERATE` 是
+> TWRP 的 **UI 动画抽帧节拍**（`gui/animation.cpp` 里的 `TW_FRAMERATE / mFPS`），
+> 和面板刷新率是两套东西。
+
+本轮把 `TW_FRAMERATE` 设为 `60`：TWRP 在 `gui/objects.hpp` 里默认写死 `30`，而上一轮
+已把主题 4 处转圈动画 patch 成 `fps="60"`，`30/60 == 0`（整数除法）两边是错配的，
+同步到 60 才自洽。**刻意不设 144**：1240×2772 的 CPU 软渲染一帧约 13.7 MB，UI 主循环
+根本达不到 144 Hz，把节拍写成 144 只会让动画抽帧变稀、反而更卡。
+
+`fox_refresh.sh` 是 oneshot 服务，在 `on boot`、模块加载完成、解密完成后各尝试一次，
+策略是「宁可不生效，也不能让 recovery 起不来」：
+
+1. 先找内核是否**明确广告** 144 Hz 模式（`fb0/modes`、`msm_fb_panel_info`、DRM `modes`）；
+   没有广告时，只有当节点当前值 ≥ 60、能确认它确实是刷新率控制才继续。
+2. 只在可写节点上 `echo 144`，并**回读校验**；读回不是 144 就恢复原值。
+3. 任何环节失败都静默跳过并以 `exit 0` 结束，不阻塞启动。日志在 `/tmp/fox_refresh.log`。
+
+> [!WARNING]
+> 强制改变面板扫描率在个别固件上可能引发花屏 / 黑屏 / 额外耗电。脚本已做回读与
+> 回滚，但若真出现异常：进 fastboot 重刷上一版 `recovery.img` 即可恢复；想彻底关闭，
+> 把 `fox_refresh.sh` 里的 `ENABLE=1` 改成 `0`，或删掉 `init.recovery.qcom.rc` 里的
+> 三处 `start fox_refresh` 后重编。
+
+回家接上 adb 后可用下面几条确认是否真的生效（**不需要**为了改代码而先跑）：
+
+```powershell
+adb shell "service list | grep -i vibra"
+adb shell "lsmod | grep -i aw8697; ls -l /dev/awinic_haptic"
+adb shell "cat /tmp/fox_refresh.log"
+adb shell "cat /sys/class/graphics/fb0/dynamic_fps 2>/dev/null"
+```
+
+---
+
 ## 已知注意事项
 
 1. **解密**：`BoardConfig.mk` 里 `PLATFORM_VERSION := 99.87.36` 是骗过 Keymaster TA 的
@@ -366,6 +412,7 @@ adb shell /sbin/setgovernor performance
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
 | 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；本构建已默认锁高性能，再关掉手势导航通常最有效。 |
+| 线性马达不振动 / recovery 里屏幕还是 60 Hz | 见 [硬件适配](#硬件适配)：马达依赖 `aw8697.ko` 加载与 `IVibrator/default` 注册；144 Hz 是探测式适配，节点不存在或不支持时保持内核默认，不会强行写入。 |
 
 ---
 

@@ -179,6 +179,21 @@ jobs:
           echo -n "init.rc perf service: "
           grep -c 'fox_perf' "$SRC/init.recovery.qcom.rc"
           grep -q 'fox_perf' "$SRC/init.recovery.qcom.rc"
+          echo "=== Whiteink hardware wiring verification ==="
+          BC="$GITHUB_WORKSPACE/BoardConfig.mk"
+          grep -q '^TW_FRAMERATE := 60$' "$BC"
+          grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME := "IVibrator/default"$' "$BC"
+          grep -q 'aw8697.ko panel_event_notifier.ko' "$BC"
+          echo "framerate / AIDL fqname / vendor modules: OK"
+          test -f "$SRC/sbin/fox_refresh.sh"
+          sh -n "$SRC/sbin/fox_refresh.sh"
+          echo "fox_refresh.sh present and shell syntax OK"
+          echo -n "init.rc refresh service: "
+          grep -c 'fox_refresh' "$SRC/init.recovery.qcom.rc"
+          grep -q 'service fox_refresh ' "$SRC/init.recovery.qcom.rc"
+          grep -q 'wait /dev/awinic_haptic' "$SRC/init.recovery.qcom.rc"
+          echo -n "vibrator service start: "
+          grep -c 'start realme.vibrator' "$SRC/init.recovery.qcom.rc"
 
       - name: Build recovery
         # GitHub Actions runs steps with `bash -e` by default. AOSP envsetup.sh

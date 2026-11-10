@@ -57,10 +57,21 @@ service fox_perf /system/bin/sh /sbin/setgovernor performance
     oneshot
     seclabel u:r:recovery:s0
 
+# Best-effort 144 Hz panel mode. The script probes sysfs, verifies by
+# readback, rolls back on rejection and always exits 0 - a missing node can
+# never block recovery from starting. See sbin/fox_refresh.sh.
+service fox_refresh /system/bin/sh /sbin/fox_refresh.sh
+    user root
+    group root
+    disabled
+    oneshot
+    seclabel u:r:recovery:s0
+
 on boot
     setprop sys.usb.config adb
     start variant-script
     start fox_perf
+    start fox_refresh
 
 on property:twrp.modules.loaded=true
     start touch_report
@@ -72,7 +83,12 @@ on property:twrp.modules.loaded=true
     write /sys/kernel/boot_adsp/boot 1
     wait /sys/class/power_supply/battery
     start health-hal-2-1
+    # aw8697.ko is explicitly listed in TW_LOAD_VENDOR_MODULES; give the
+    # driver a moment to create /dev/awinic_haptic before the AIDL service
+    # starts. The short timeout keeps a failed insmod from stalling the boot.
+    wait /dev/awinic_haptic 2
     start realme.vibrator
+    start fox_refresh
     umount /firmware
 
 service modules_mount /system/bin/modules_mount.sh
@@ -87,3 +103,6 @@ on property:twrp.decrypt.done=true
     # OrangeFox re-applies its own performance mode during startup, so
     # re-assert the governor after decryption, once the UI is about to run.
     start fox_perf
+    # Re-assert the panel mode too: some display nodes only become writable
+    # after decryption / full display init. The script is idempotent.
+    start fox_refresh

@@ -94,9 +94,15 @@ VENDOR_SECURITY_PATCH := $(PLATFORM_SECURITY_PATCH)
 # Extras
 TARGET_VENDOR_PROP += $(DEVICE_PATH)/vendor.prop
 
-# Vibrator
+# Vibrator (Awinic AW8697 X-axis linear motor)
 TW_SUPPORT_INPUT_AIDL_HAPTICS := true
 TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF := true
+# Must match the device VINTF manifest:
+# recovery/root/vendor/odm/etc/vintf/manifest/vendor.qti.hardware.vibrator.service.xml
+# declares <fqname>IVibrator/default</fqname>. Some other devices expose
+# IVibrator/vibratorfeature instead - this one does NOT, so pin it explicitly
+# instead of relying on whatever default the recovery build picks.
+TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME := "IVibrator/default"
 
 TARGET_RECOVERY_DEVICE_MODULES += libexpat android.hardware.vibrator-V2-ndk
 RECOVERY_LIBRARY_SOURCE_FILES += \
@@ -107,6 +113,16 @@ RECOVERY_LIBRARY_SOURCE_FILES += \
 TARGET_RECOVERY_QCOM_RTC_FIX := true
 TARGET_RECOVERY_PIXEL_FORMAT := RGBX_8888
 TW_THEME := portrait_hdpi
+# TWRP hardcodes TW_FRAMERATE to 30 in gui/objects.hpp, and
+# gui/animation.cpp divides it by each <animation fps="...">:
+#     if (++mUpdateCount > TW_FRAMERATE / mFPS)
+# The R12 theme's four indeterminate spinners are patched to fps="60" during
+# the cloud build; leaving the 30 baseline makes 30/60 == 0 (integer
+# division), i.e. the two values disagree. Keep them in sync at 60.
+# IMPORTANT: this is the UI animation pacing ONLY. It does NOT set the panel
+# scanout refresh rate - that lives in the kernel DRM/panel driver and is
+# handled at runtime by sbin/fox_refresh.sh.
+TW_FRAMERATE := 60
 TW_CUSTOM_CPU_TEMP_PATH := "/sys/devices/virtual/thermal/thermal_zone39/temp"
 TW_BRIGHTNESS_PATH := "/sys/devices/platform/soc/ae00000.qcom,mdss_mdp/backlight/panel0-backlight/brightness"
 TW_MAX_BRIGHTNESS := 4095
@@ -137,7 +153,12 @@ RECOVERY_LIBRARY_SOURCE_FILES += \
     $(TARGET_OUT_SHARED_LIBRARIES)/libdebuggerd_client.so \
     $(TARGET_OUT_SYSTEM_EXT_SHARED_LIBRARIES)/vendor.display.config@1.0.so \
     $(TARGET_OUT_SYSTEM_EXT_SHARED_LIBRARIES)/vendor.display.config@2.0.so
-TW_LOAD_VENDOR_MODULES := "adsp_loader_dlkm.ko goodix_core.ko"
+# The ramdisk ships 20 .ko files under vendor/lib/modules/1.1/ but has NO
+# modules.load, so TWRP cannot auto-discover the two hardware-specific drivers.
+# Load them explicitly: without aw8697.ko the /dev/awinic_haptic node never
+# appears and the AIDL realme.vibrator service (X-axis linear motor / RichTap)
+# cannot start; panel_event_notifier.ko is the OPLUS panel event driver.
+TW_LOAD_VENDOR_MODULES := "adsp_loader_dlkm.ko goodix_core.ko aw8697.ko panel_event_notifier.ko"
 TW_LOAD_VENDOR_MODULES_EXCLUDE_GKI := true
 TW_LOAD_VENDOR_BOOT_MODULES := true
 TW_LOAD_PREBUILT_MODULES := true
