@@ -339,12 +339,52 @@ adb shell /sbin/setgovernor performance
 
 ## 硬件适配
 
-这两套驱动**设备树里本来就有**，本轮做的是把它们接进启动链，而不是移植驱动：
+这两套驱动**设备树里本来就有**，做的是把它们接进启动链，而不是移植驱动：
 
-| 组件 | 设备树里已有的文件 | 本轮接线 |
+| 组件 | 设备树里已有的文件 | 接线方式 |
 | --- | --- | --- |
-| X 轴线性马达 | `vendor/lib/modules/1.1/aw8697.ko`（Awinic AW8697）、`/dev/awinic_haptic`、`system/bin/realme.vibrator.service`（AIDL `IVibrator` V2）、`aac_richtap.config` + 809/815 波形、`IVibrator/default` VINTF manifest | 加进 `TW_LOAD_VENDOR_MODULES` 显式 insmod；补 `TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME`；init 里 `wait /dev/awinic_haptic 2` 之后再 `start realme.vibrator` |
+| X 轴线性马达 | `vendor/lib/modules/1.1/aw8697.ko`（Awinic AW8697）、`/dev/awinic_haptic`、`system/bin/realme.vibrator.service`（AIDL `IVibrator` V2）、`aac_richtap.config` + 809/815 波形、`IVibrator/default` VINTF manifest | 加进 `TW_LOAD_VENDOR_MODULES` 显式 insmod；init 里 `wait /dev/awinic_haptic 2` 之后再 `start realme.vibrator`；**UI 调用路径由 `scripts/patch_minuitwrp_haptics.py` 改成 `perform(CLICK)`**，见下 |
 | 屏幕面板 | `vendor/lib/modules/1.1/panel_event_notifier.ko`、`vendor.display.config@1.0/2.0`、`TW_BRIGHTNESS_PATH` | 加进 `TW_LOAD_VENDOR_MODULES`；新增 `sbin/fox_refresh.sh` 做保守的 144 Hz 探测 |
+
+### 为什么 r11 仍是「转子震感 + 滑动卡」
+
+> [!IMPORTANT]
+> **r11 及更早版本的马达接线没有打中根因。** 从 r10 成品解出的
+> `system/lib64/libminuitwrp.so` 中含有 `IVibrator/default`、
+> `AServiceManager_getService`、`fromBinder`，却**完全没有 `perform` / `Effect`**——
+> 马达 HAL 一直在，但 UI 一次都没调用过设备里预置的 RichTap 波形。
+
+上游 `bootable/recovery/minuitwrp/events.cpp` 的 `vibrate(int timeout_ms)` 在 AIDL 分支做的是：
+
+```cpp
+std::shared_ptr<IVibrator> vib = IVibrator::fromBinder(
+    ndk::SpAIBinder(AServiceManager_getService(kVibratorInstance.c_str())));
+vib->on((uint32_t)timeout_ms, nullptr);   // 固定振幅、按毫秒长震
+```
+
+两个症状其实同源：
+
+| 现象 | 真正原因 |
+| --- | --- |
+| 转子马达那种「嗡嗡」感 | `on(ms)` 只给一个**恒定振幅**；线性马达需要预渲染波形。`vendor/odm/etc/vibrator/809/def/effect_*.bin` 里 300+ 个 RichTap 波形一次都没被用上。 |
+| 点击 / 滑动发涩 | 每次虚拟按键都同步走一次 binder `getService()` + `fromBinder()`；设备树原来还开了 `TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF`，会为每次点击新建一个 detached `std::thread` + `usleep(ms)` + `off()`。 |
+
+`scripts/patch_minuitwrp_haptics.py` 在每次云端 sync 后对 `vibrate()` 做函数级重写：
+
+1. **缓存 HAL 代理**（mutex 保护；服务晚启动时最多每 500 ms 重试一次），不再每次触摸查 binder；
+2. 调 `perform(Effect::CLICK, EffectStrength::MEDIUM, nullptr, &played_ms)` 触发 RichTap 波形；HAL 没有 CLICK 波形时才退回 20 ms 短 `on()`，**振动不会丢**；
+3. 35 ms 节流，手势导航的连续事件不会把马达与输入线程打满；
+4. 移除 `FIX_OFF` 的 `<thread>` / `vib_on_count` 脚手架。patch 带精确匹配计数与后置断言，失效就直接让 CI 失败，不会白白编 2 小时。
+
+> [!NOTE]
+> `TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME := "IVibrator/default"` 与
+> `TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF := true` 都已从 `BoardConfig.mk` 删除。
+> 前者本就是上游默认实例名（`IVibrator::descriptor + "/default"`，与本机 VINTF
+> manifest 一致），补它等于没改；后者正是「每击建线程」的元凶。
+
+> [!TIP]
+> 验证 r12 是否真的生效：解出 `system/lib64/libminuitwrp.so`，
+> `strings` 里应能找到 `perform` / `Effect`，而不是像 r10/r11 那样只有 `on()`。
 
 > [!IMPORTANT]
 > **144 Hz 不是靠 `BoardConfig.mk` 声明出来的。** recovery 没有 SurfaceFlinger /
@@ -353,7 +393,15 @@ adb shell /sbin/setgovernor performance
 > TWRP 的 **UI 动画抽帧节拍**（`gui/animation.cpp` 里的 `TW_FRAMERATE / mFPS`），
 > 和面板刷新率是两套东西。
 
-本轮把 `TW_FRAMERATE` 设为 `60`：TWRP 在 `gui/objects.hpp` 里默认写死 `30`，而上一轮
+> [!NOTE]
+> **「144 Hz 看不出来」和「滑动卡」都不等于面板没跑在 144 Hz。** recovery 没有
+> SurfaceFlinger / HWUI / vsync，是 CPU 按需重绘到 framebuffer：1240×2772、
+> `RGBX_8888` 一帧约 13.7 MB。即使面板扫描率是 144 Hz，UI 也只在发生事件时画一帧，
+> **不存在恒定 144 fps**。r12 修掉的是每次触摸同步走 binder + 新建线程这段输入延迟
+> （见上），配合已固化的 `performance` governor；全屏软渲染本身仍是上限。想更跟手，
+> 进设置关掉手势导航通常最有效。
+
+构建把 `TW_FRAMERATE` 设为 `60`：TWRP 在 `gui/objects.hpp` 里默认写死 `30`，而上一轮
 已把主题 4 处转圈动画 patch 成 `fps="60"`，`30/60 == 0`（整数除法）两边是错配的，
 同步到 60 才自洽。**刻意不设 144**：1240×2772 的 CPU 软渲染一帧约 13.7 MB，UI 主循环
 根本达不到 144 Hz，把节拍写成 144 只会让动画抽帧变稀、反而更卡。
@@ -411,8 +459,9 @@ adb shell "cat /sys/class/graphics/fb0/dynamic_fps 2>/dev/null"
 | 编译卡在 41–42% 长时间无输出 | 先看实时日志里的 `HEARTBEAT` 是否还在跳。若心跳也停了，属于 [CI 已知问题](#ci-已知问题实时日志管道冻结)，取消该 run 后用最新 workflow 重跑，或改用本地 WSL2 编译。 |
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
-| 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；本构建已默认锁高性能，再关掉手势导航通常最有效。 |
-| 线性马达不振动 / recovery 里屏幕还是 60 Hz | 见 [硬件适配](#硬件适配)：马达依赖 `aw8697.ko` 加载与 `IVibrator/default` 注册；144 Hz 是探测式适配，节点不存在或不支持时保持内核默认，不会强行写入。 |
+| 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；已默认锁高性能，再关掉手势导航通常最有效。r12 起还去掉了每次触摸的 binder 查找与新建线程。 |
+| 线性马达摸起来还是转子那种「嗡嗡」感 | r11 及更早版本只调了 `on(ms)`，从没调过 `perform(CLICK)` 波形；见 [硬件适配](#硬件适配)。r12 已重写 `vibrate()`，可在 `libminuitwrp.so` 里检查 `perform` / `Effect` 字符串确认。 |
+| 144 Hz 没看出来 / 面板刷新率不生效 | 面板刷新率 ≠ UI 帧率；recovery 按需重绘，`fox_refresh.sh` 也只在内核明确广告 144 Hz 时才写，节点不存在就静默跳过。见 [硬件适配](#硬件适配)。 |
 
 ---
 

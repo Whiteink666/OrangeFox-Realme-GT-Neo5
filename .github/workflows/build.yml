@@ -130,11 +130,12 @@ jobs:
         # assembled from gui/theme/portrait_hdpi at build time, so also seed
         # the same files into the source - this keeps the overlay reproducible
         # on every cloud build regardless of copy order.
-        # This step ALSO applies two small patches to the freshly synced
-        # upstream theme sources (never committed to this repo):
+        # This step ALSO applies three patches to the freshly synced upstream
+        # sources (never committed to this repo):
         #   - indeterminate progress spinner 30fps -> 60fps
         #   - default "Recovery performance mode" Balanced -> High performance
-        # Both are plain text substitutions with match-count assertions, so a
+        #   - minuitwrp/events.cpp: per-tap on(ms) -> cached HAL + perform(CLICK)
+        # Every patch has match-count / post-condition assertions, so a
         # silently ineffective patch fails the build instead of wasting 2h.
         run: |
           ROOT="$HOME/fox_12.1"
@@ -169,6 +170,24 @@ jobs:
           else
             echo "WARN: portrait_hdpi theme source not found; relying on recovery/root copy only"
           fi
+
+          echo "=== Patch upstream minuitwrp haptics: on(ms) -> perform(CLICK) ==="
+          EVENTS="$(find "$ROOT" -path '*/minuitwrp/events.cpp' -print -quit)"
+          if [ -z "$EVENTS" ] || [ ! -f "$EVENTS" ]; then
+            echo "ERROR: minuitwrp/events.cpp not found under $ROOT"
+            exit 1
+          fi
+          python3 "$GITHUB_WORKSPACE/scripts/patch_minuitwrp_haptics.py" "$EVENTS"
+          grep -q 'Effect::CLICK' "$EVENTS"
+          grep -q 'EffectStrength::MEDIUM' "$EVENTS"
+          grep -q 'std::lock_guard<std::mutex>' "$EVENTS"
+          grep -q '#include <chrono>' "$EVENTS"
+          if grep -q 'std::thread(' "$EVENTS" || grep -q 'vib_on_count' "$EVENTS"; then
+            echo "ERROR: upstream per-tap thread path survived the haptics patch"
+            exit 1
+          fi
+          echo "haptics patch OK: $EVENTS"
+
           echo "=== Whiteink overlay verification ==="
           ls -l "$SRC/sbin/maintainer.xml" "$SRC/twres/splash.xml" "$SRC/twres/images/Whiteink/"*.png
           echo -n "custom pages: "
@@ -182,9 +201,17 @@ jobs:
           echo "=== Whiteink hardware wiring verification ==="
           BC="$GITHUB_WORKSPACE/BoardConfig.mk"
           grep -q '^TW_FRAMERATE := 60$' "$BC"
-          grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME := "IVibrator/default"$' "$BC"
+          grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS := true$' "$BC"
+          if grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF :=' "$BC"; then
+            echo "ERROR: FIX_OFF re-enabled; per-tap std::thread would come back"
+            exit 1
+          fi
+          if grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME :=' "$BC"; then
+            echo "ERROR: redundant FQNAME pin re-added; upstream default already matches"
+            exit 1
+          fi
           grep -q 'aw8697.ko panel_event_notifier.ko' "$BC"
-          echo "framerate / AIDL fqname / vendor modules: OK"
+          echo "framerate / AIDL haptics / no FIX_OFF / vendor modules: OK"
           test -f "$SRC/sbin/fox_refresh.sh"
           sh -n "$SRC/sbin/fox_refresh.sh"
           echo "fox_refresh.sh present and shell syntax OK"

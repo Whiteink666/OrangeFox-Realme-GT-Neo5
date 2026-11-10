@@ -95,14 +95,17 @@ VENDOR_SECURITY_PATCH := $(PLATFORM_SECURITY_PATCH)
 TARGET_VENDOR_PROP += $(DEVICE_PATH)/vendor.prop
 
 # Vibrator (Awinic AW8697 X-axis linear motor)
+# Only the AIDL switch is required. minuitwrp/events.cpp defaults the instance
+# to IVibrator::descriptor + "/default", which is exactly the
+# <fqname>IVibrator/default</fqname> in our VINTF manifest. Pinning it with
+# TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME changed nothing (verified against the
+# r10 libminuitwrp.so), so it is intentionally NOT set here.
 TW_SUPPORT_INPUT_AIDL_HAPTICS := true
-TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF := true
-# Must match the device VINTF manifest:
-# recovery/root/vendor/odm/etc/vintf/manifest/vendor.qti.hardware.vibrator.service.xml
-# declares <fqname>IVibrator/default</fqname>. Some other devices expose
-# IVibrator/vibratorfeature instead - this one does NOT, so pin it explicitly
-# instead of relying on whatever default the recovery build picks.
-TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME := "IVibrator/default"
+# NOTE: TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF is deliberately NOT set either.
+# Its upstream path spawns a detached std::thread + usleep() on EVERY tap.
+# The real waveform fix lives in scripts/patch_minuitwrp_haptics.py, applied
+# to bootable/recovery/minuitwrp/events.cpp by the CI inject step: it caches
+# the HAL proxy and calls perform(Effect::CLICK, EffectStrength::MEDIUM).
 
 TARGET_RECOVERY_DEVICE_MODULES += libexpat android.hardware.vibrator-V2-ndk
 RECOVERY_LIBRARY_SOURCE_FILES += \
