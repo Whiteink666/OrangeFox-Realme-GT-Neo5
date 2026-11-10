@@ -89,10 +89,32 @@ jobs:
 
       - name: Set up OrangeFox source (fox_12.1 manifest / R12.0 UI)
         run: |
-          git clone --depth 1 https://gitlab.com/OrangeFox/sync.git "$HOME/ofsync"
-          cd "$HOME/ofsync"
-          # orangefox_sync.sh REQUIRES an absolute path for --path
-          ./orangefox_sync.sh --branch 12.1 --path "$HOME/fox_12.1"
+          set +e
+          git clone --depth 1 https://gitlab.com/OrangeFox/sync.git "$HOME/ofsync" \
+            || { echo "ERROR: cannot clone OrangeFox sync repo"; exit 1; }
+          cd "$HOME/ofsync" || exit 1
+          # orangefox_sync.sh REQUIRES an absolute path for --path.
+          # AOSP mirrors intermittently answer HTTP 503 for one or two
+          # projects (run 9: external/protobuf + system/libvintf), aborting
+          # the entire 2h build before any of our own code is ever touched.
+          # `repo sync` is incremental, so re-running only refetches the
+          # failed projects - no need to wipe and re-download the tree.
+          RC=1
+          for attempt in 1 2 3 4; do
+            echo "=== OrangeFox source sync attempt $attempt/4 ==="
+            ./orangefox_sync.sh --branch 12.1 --path "$HOME/fox_12.1"
+            RC=$?
+            [ "$RC" -eq 0 ] && break
+            echo "WARN: sync attempt $attempt failed (rc=$RC); retrying in 30s"
+            sleep 30
+          done
+          if [ "$RC" -ne 0 ]; then
+            echo "ERROR: OrangeFox source sync failed after 4 attempts"
+            exit "$RC"
+          fi
+          echo "OrangeFox source sync OK"
+          [ -d "$HOME/fox_12.1/bootable/recovery" ] \
+            || { echo "ERROR: bootable/recovery missing after sync"; exit 1; }
 
       - name: Place device tree
         run: |
