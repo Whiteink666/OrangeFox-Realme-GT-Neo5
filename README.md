@@ -1,13 +1,14 @@
 # OrangeFox Recovery for realme GT Neo5 / GT3 (RMXTARO · senna)
 
-**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r10`
+**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r12`
 
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
 由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
 
 > [!NOTE]
-> 最新可刷产物在 **[`ofox-RMXTARO-r10`](https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5/releases/tag/ofox-RMXTARO-r10)**，
-> 含高性能 governor、60 fps 转圈动画与全部自定义页面。刷入前请先读
+> 最新可刷产物在 **[`ofox-RMXTARO-r12`](https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5/releases/tag/ofox-RMXTARO-r12)**，
+> 含 `perform(CLICK)` 线性马达波形、缓存 HAL 代理（去掉每次触摸的 binder 查找与新建线程）、
+> 高性能 governor、60 fps 转圈动画与全部自定义页面。刷入前请先读
 > [刷入](#刷入) 与 [已知注意事项](#已知注意事项)。
 
 | 项目 | 信息 |
@@ -42,8 +43,8 @@
 | 界面 | Material You Expressive、SVG 图标引擎、Fox White / Fox Dark 双主题、Inter 字体、手势导航 |
 | 默认语言 | **简体中文**（`TW_DEFAULT_LANGUAGE := zh_CN`，可在 设置 → 语言 切换） |
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
-| 最新成功构建 | Actions **run 10**（`42743206972`，head `6ef4601`）成功，15 步全绿，`mka_rc=0`，耗时约 **2h20m** |
-| 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-R12.0-Unofficial-RMXTARO.zip` + 两个 `.md5` |
+| 最新成功构建 | Actions **run 12**（`42861234017`，head `f31b6d1`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:59:45`，整个 run 约 **2h06m** |
+| 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-*.zip` + 两个 `.md5` |
 
 - `fox_12.1` manifest 拉取的 `bootable/recovery` 已是 R12.0 新 UI，**无需再迁移分支**；
   从镜像解出的 `twres/changelog.txt` 首段即 `OrangeFox Recovery R12.0 Changelog`。
