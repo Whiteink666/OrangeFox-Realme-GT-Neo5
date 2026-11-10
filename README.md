@@ -1,7 +1,14 @@
 # OrangeFox Recovery for realme GT Neo5 / GT3 (RMXTARO · senna)
 
+**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r10`
+
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
 由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
+
+> [!NOTE]
+> 最新可刷产物在 **[`ofox-RMXTARO-r10`](https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5/releases/tag/ofox-RMXTARO-r10)**，
+> 含高性能 governor、60 fps 转圈动画与全部自定义页面。刷入前请先读
+> [刷入](#刷入) 与 [已知注意事项](#已知注意事项)。
 
 | 项目 | 信息 |
 | --- | --- |
@@ -13,12 +20,19 @@
 | 分区 | Virtual A/B + 独立 recovery 分区 + 动态分区（super） |
 | 维护 | [酷安 @白墨Whiteink](https://www.coolapk.com/u/30264531) · [GitHub Whiteink666](https://github.com/Whiteink666) · QQ 群 287398984 |
 
+---
+
 ## 目录
 
-[状态](#状态) · [构建](#构建) · [刷入](#刷入) · [验证产物](#验证产物) ·
-[白墨工作室自定义页面](#白墨工作室自定义页面) · [UI 流畅度](#ui-流畅度) ·
-[已知注意事项](#已知注意事项) · [常见问题](#常见问题) · [维护约定](#维护约定) ·
-[Credits](#credits)
+**开始使用** · [状态](#状态) · [刷入](#刷入) · [验证产物](#验证产物)
+
+**构建与维护** · [构建](#构建) · [维护约定](#维护约定) · [常见问题](#常见问题)
+
+**定制内容** · [白墨工作室自定义页面](#白墨工作室自定义页面) · [UI 流畅度](#ui-流畅度)
+
+**其他** · [已知注意事项](#已知注意事项) · [Credits](#credits) · [License](#license)
+
+---
 
 ## 状态
 
@@ -28,7 +42,7 @@
 | 界面 | Material You Expressive、SVG 图标引擎、Fox White / Fox Dark 双主题、Inter 字体、手势导航 |
 | 默认语言 | **简体中文**（`TW_DEFAULT_LANGUAGE := zh_CN`，可在 设置 → 语言 切换） |
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
-| 云端编译基线 | Actions run `42509233113`（head `86bd1f5`）成功，`mka_rc=0`，耗时 **1h57m** |
+| 最新成功构建 | Actions **run 10**（`42743206972`，head `6ef4601`）成功，15 步全绿，`mka_rc=0`，耗时约 **2h20m** |
 | 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-R12.0-Unofficial-RMXTARO.zip` + 两个 `.md5` |
 
 - `fox_12.1` manifest 拉取的 `bootable/recovery` 已是 R12.0 新 UI，**无需再迁移分支**；
@@ -37,6 +51,8 @@
   `vendor/recovery` + `bootable/recovery` 提供。
 - 已修复：把 10 个 OPLUS `my_*` 逻辑分区补进 `AB_OTA_PARTITIONS`，消除 OTA 时报
   “logical partition not found” 的隐患（此前靠 `OF_IGNORE_LOGICAL_MOUNT_ERRORS` 掩盖）。
+
+---
 
 ## 构建
 
@@ -52,6 +68,7 @@
    （保留 30 天），但匿名下载会 401、速度也慢，仅供备用。
 4. 先 `fastboot flash recovery`，进 recovery 后再刷 zip 完成持久化安装。
 
+> [!NOTE]
 > 云端编译使用 GitHub 自带的 `GITHUB_TOKEN`，**无需你提供任何个人密钥**。
 > workflow 只监听 `push` / `workflow_dispatch`；发布 Release **不会**再触发一轮编译。
 
@@ -66,8 +83,9 @@
 | runner | `ubuntu-22.04`，约 15 GiB 内存 / 146 GiB 磁盘，额外 8 GiB swapfile |
 | 缓存 | 每次都是全新 runner，**无跨 run 的 ccache 复用**，重跑即完整两小时 |
 
-想缩短等待可把 `-j1` 提到 `-j2`（15 GiB 内存通常扛得住），但需自行验证稳定性；
-文档与 UI 小改建议统一带 `[skip ci]`，攒够一批再编，避免反复等两小时。
+> [!TIP]
+> 想缩短等待可把 `-j1` 提到 `-j2`（15 GiB 内存通常扛得住），但需自行验证稳定性；
+> 文档与 UI 小改建议统一带 `[skip ci]`，攒够一批再编，避免反复等两小时。
 
 #### CI 产物与日志
 
@@ -93,6 +111,7 @@ load（1.0）都正常。这是 GitHub runner 的 live-log 上传管道 wedged �
 当前 workflow 的规避方式就是把 ninja 输出全部重定向到文件，让实时日志体积保持在
 约 200 KiB / 2 小时，远离触发点。由此带来一个副作用：
 
+> [!NOTE]
 > 运行中的 job 用 `GET /actions/jobs/<id>/logs` 下载归档日志可能返回
 > `BlobNotFound` / 404 —— 因为 stdout 量太小，尚未触发归档分片上传。
 > **这不是失败信号**，完整日志会在步骤结束后作为 `build-log-<run号>` artifact 出现。
@@ -132,6 +151,8 @@ splash（云端的 `Inject Whiteink UI overlay into theme source` 步骤就是�
 产物：`out/target/product/RMXTARO/recovery.img`、
 `OrangeFox-R12.0-Unofficial-RMXTARO.zip`（已签名，含 `META-INF` / `magiskboot`）及对应 `.md5`。
 
+---
+
 ## 刷入
 
 前置条件：bootloader 已解锁、`fastboot devices` 能识别设备、已备份 `/data`，
@@ -157,7 +178,8 @@ Get-FileHash .\recovery.img -Algorithm SHA256
 若 `fastboot reboot recovery` 无响应（部分 realme 机型不实现该命令），用
 `fastboot reboot` 并在震动的瞬间按住 **音量下**，或直接用电源 + 音量下组合键。
 
-> ⚠️ 只刷 `recovery.img` 是**非持久安装**：重启进一次系统后，原厂 recovery 可能被
+> [!WARNING]
+> 只刷 `recovery.img` 是**非持久安装**：重启进一次系统后，原厂 recovery 可能被
 > 启动链 / OTA 还原。长期使用必须做下面的完整安装。首次进入会要求输入锁屏密码解密
 > `/data`；解密失败不要 format data，先退回排查固件版本与 Keymaster 覆盖。
 
@@ -168,11 +190,12 @@ R12.0 的**必要步骤**——官方明确写「do NOT just flash the recovery 
 and stop there」，只刷 img 不算安装完成。zip 会把 OrangeFox 固化到启动链（含写入
 非活动 slot，切槽后仍在）。
 
-⚠️ 本树是 `FOX_VANILLA_BUILD=1` 的 vanilla 构建。按官方 build_vars 文档，该模式会
-跳过全部 OrangeFox patches 并自动启用 `OF_SKIP_ORANGEFOX_PROCESS`，且
-`OF_PATCH_AVB20` 在 vanilla 下被忽略（对 A/B 设备本来也不生效）。**不要指望 zip
-替你处理 vbmeta / dm-verity**，请保持 vbmeta 与当前固件一致。
-官方还要求：刷任何 ROM 之后都要立刻重刷一次 OrangeFox，并始终先做完整备份。
+> [!WARNING]
+> 本树是 `FOX_VANILLA_BUILD=1` 的 vanilla 构建。按官方 build_vars 文档，该模式会
+> 跳过全部 OrangeFox patches 并自动启用 `OF_SKIP_ORANGEFOX_PROCESS`，且
+> `OF_PATCH_AVB20` 在 vanilla 下被忽略（对 A/B 设备本来也不生效）。**不要指望 zip
+> 替你处理 vbmeta / dm-verity**，请保持 vbmeta 与当前固件一致。
+> 官方还要求：刷任何 ROM 之后都要立刻重刷一次 OrangeFox，并始终先做完整备份。
 
 **只有确认系统因 dm-verity 校验起不来时**，才需要另刷 `vbmeta.img`（需自行从与当前
 固件同版本的官方线刷包提取，本仓库不提供）：
@@ -181,10 +204,14 @@ and stop there」，只刷 img 不算安装完成。zip 会把 OrangeFox 固化�
 fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
 ```
 
-⚠️ 这条命令会改变 AVB 状态，通常伴随**清空 data**，务必先备份；不要在最小验证流程里执行。
+> [!WARNING]
+> 这条命令会改变 AVB 状态，通常伴随**清空 data**，务必先备份；不要在最小验证流程里执行。
 
-⚠️ **禁止 `fastboot boot recovery.img`**：本机为 Virtual A/B 动态分区设备，临时启动
-环境不完整，会导致解密失败甚至变砖。必须 `flash` 进分区再重启。
+> [!IMPORTANT]
+> **禁止 `fastboot boot recovery.img`**：本机为 Virtual A/B 动态分区设备，临时启动
+> 环境不完整，会导致解密失败甚至变砖。必须 `flash` 进分区再重启。
+
+---
 
 ## 验证产物
 
@@ -206,8 +233,11 @@ fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
 /twres/languages/zh_CN.xml
 ```
 
-> ⚠️ 不要手工解包再重打包 `recovery.img` 拿去刷，容易破坏签名与 AVB 结构；
+> [!WARNING]
+> 不要手工解包再重打包 `recovery.img` 拿去刷，容易破坏签名与 AVB 结构；
 > 离线解包只用于检查内容。
+
+---
 
 ## 白墨工作室自定义页面
 
@@ -261,6 +291,7 @@ Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG �
 元素，**原有狐头 logo 和 `OrangeFox` / `Recovery` 两行英文原样保留**。中文工作室名
 直接画进 PNG，因为 splash 用的 Inter 字体没有中文字形。
 
+> [!NOTE]
 > `OF_NO_SPLASH_CHANGE := 1` 的准确含义（官方 build_vars）：
 > "set this to 1 to disable changing the splash image" —— 只禁用**在 recovery 里运行时**
 > 更换开机图，不阻止编译期覆盖。所以自定义 splash 必须编译进 recovery，运行后在
@@ -268,6 +299,8 @@ Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG �
 
 后续还能加的（尚未做）：`themes/accent.xml` 改专属配色、`FOX_USE_MISANS_FONTS := 1`
 换中文字体、整套 SVG 图标替换、`twres/credits.txt` 追加白墨署名。
+
+---
 
 ## UI 流畅度
 
@@ -284,6 +317,7 @@ framebuffer，**按需重绘**——静止时一帧都不画，只有触摸跟�
 | 默认「Recovery 性能模式」改为**高性能** | 云端编译时 patch 上游 `pages/settings.xml` 的两处兜底默认值 | 让 OrangeFox 自身的启动逻辑也用高性能 |
 | 转圈动画 30 → 60 fps | 云端编译时 patch 上游 `pages/{files,main,templates/base}.xml` 共 4 处 | 只影响进度条不确定动画，**不是全局帧率上限** |
 
+> [!NOTE]
 > 主题里那 4 处 `fps="30"` 的条件都是 `ui_progress`，只控制进度条转圈；全局 UI 没有
 > 帧率常量。所以「没有 60 帧」无法靠改一个数字解决。
 
@@ -301,6 +335,8 @@ adb shell cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 adb shell /sbin/setgovernor performance
 ```
 
+---
+
 ## 已知注意事项
 
 1. **解密**：`BoardConfig.mk` 里 `PLATFORM_VERSION := 99.87.36` 是骗过 Keymaster TA 的
@@ -317,6 +353,8 @@ adb shell /sbin/setgovernor performance
 6. **CI 实时日志**：约 2 MiB 处可能 wedged，详见
    [CI 已知问题](#ci-已知问题实时日志管道冻结)；这是 runner 侧限制，不影响本地编译。
 
+---
+
 ## 常见问题
 
 | 现象 | 说明 |
@@ -328,6 +366,8 @@ adb shell /sbin/setgovernor performance
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
 | 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；本构建已默认锁高性能，再关掉手势导航通常最有效。 |
+
+---
 
 ## 维护约定
 
@@ -345,6 +385,8 @@ adb shell /sbin/setgovernor performance
 - **自定义资源**：所有 DIY 文件都在 `recovery/root/` 下，云编译会注入主题源；
   不要直接改 `bootable/recovery`，否则下次同步源码会被覆盖。
 
+---
+
 ## Credits
 
 - 设备树基于 [MisterZtr/recovery_device_realme_RMXTARO](https://github.com/MisterZtr/recovery_device_realme_RMXTARO)（`fox-12.1` 分支）
@@ -352,6 +394,8 @@ adb shell /sbin/setgovernor performance
 - 原始贡献：Bot-cd-Crypton、hoangzk9as、Ctapchuk、Kychera22
 - 维护与定制：白墨 Whiteink · [酷安](https://www.coolapk.com/u/30264531) ·
   [GitHub](https://github.com/Whiteink666) · QQ 群 287398984
+
+---
 
 ## License
 
