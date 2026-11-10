@@ -16,8 +16,9 @@
 ## 目录
 
 [状态](#状态) · [构建](#构建) · [刷入](#刷入) · [验证产物](#验证产物) ·
-[白墨工作室自定义页面](#白墨工作室自定义页面) · [已知注意事项](#已知注意事项) ·
-[常见问题](#常见问题) · [维护约定](#维护约定) · [Credits](#credits)
+[白墨工作室自定义页面](#白墨工作室自定义页面) · [UI 流畅度](#ui-流畅度) ·
+[已知注意事项](#已知注意事项) · [常见问题](#常见问题) · [维护约定](#维护约定) ·
+[Credits](#credits)
 
 ## 状态
 
@@ -268,6 +269,38 @@ Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG �
 后续还能加的（尚未做）：`themes/accent.xml` 改专属配色、`FOX_USE_MISANS_FONTS := 1`
 换中文字体、整套 SVG 图标替换、`twres/credits.txt` 追加白墨署名。
 
+## UI 流畅度
+
+Recovery 里没有 Android 的 SurfaceFlinger / HWUI / vsync 合成：界面由 CPU 软件渲染到
+framebuffer，**按需重绘**——静止时一帧都不画，只有触摸跟手、页面切换和转圈动画时逐帧
+重绘。所以不存在「恒定 60fps」，体感卡顿来自单帧耗时过长。R12 的 SVG 图标、阴影与圆角
+在 1240×2772 全屏上光栅化，一帧约 13.7 MB（`RGBX_8888`），CPU 降频时尤其明显。
+
+本构建做了三件事，开箱即默认高性能：
+
+| 改动 | 位置 | 作用 |
+| --- | --- | --- |
+| 开机锁定 `performance` governor | `recovery/root/init.recovery.qcom.rc` 的 `fox_perf` 服务，`on boot` 与解密完成后各触发一次 | 避免默认「均衡」把 UI 线程压到小核低频 |
+| 默认「Recovery 性能模式」改为**高性能** | 云端编译时 patch 上游 `pages/settings.xml` 的两处兜底默认值 | 让 OrangeFox 自身的启动逻辑也用高性能 |
+| 转圈动画 30 → 60 fps | 云端编译时 patch 上游 `pages/{files,main,templates/base}.xml` 共 4 处 | 只影响进度条不确定动画，**不是全局帧率上限** |
+
+> 主题里那 4 处 `fps="30"` 的条件都是 `ui_progress`，只控制进度条转圈；全局 UI 没有
+> 帧率常量。所以「没有 60 帧」无法靠改一个数字解决。
+
+首次进入后建议再确认两处（一次设置即可持久生效）：
+
+1. **设置 → 性能 → Recovery 性能模式**：应显示「高性能」。若之前在 `/sdcard/Fox/`
+   保存过「均衡」，旧的持久化设置会覆盖编译期默认值，手动改一次并重启 recovery。
+2. **设置 → 自定义 → 手势导航 → 关闭「开启手势」**：R12 默认开启，手势跟随手指是
+   连续全屏重绘，比点击操作重得多；改回导航栏通常最立竿见影。
+
+临时判定（recovery 里连着 adb，立即生效、不改任何设置）：
+
+```powershell
+adb shell cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+adb shell /sbin/setgovernor performance
+```
+
 ## 已知注意事项
 
 1. **解密**：`BoardConfig.mk` 里 `PLATFORM_VERSION := 99.87.36` 是骗过 Keymaster TA 的
@@ -294,6 +327,7 @@ Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG �
 | 编译卡在 41–42% 长时间无输出 | 先看实时日志里的 `HEARTBEAT` 是否还在跳。若心跳也停了，属于 [CI 已知问题](#ci-已知问题实时日志管道冻结)，取消该 run 后用最新 workflow 重跑，或改用本地 WSL2 编译。 |
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
+| 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；本构建已默认锁高性能，再关掉手势导航通常最有效。 |
 
 ## 维护约定
 

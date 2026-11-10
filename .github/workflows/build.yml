@@ -107,8 +107,13 @@ jobs:
         # and our splash.xml / PNGs into /twres/. The GUI theme /twres/ is
         # assembled from gui/theme/portrait_hdpi at build time, so also seed
         # the same files into the source - this keeps the overlay reproducible
-        # on every cloud build regardless of copy order, and never forks or
-        # patches upstream bootable/recovery permanently.
+        # on every cloud build regardless of copy order.
+        # This step ALSO applies two small patches to the freshly synced
+        # upstream theme sources (never committed to this repo):
+        #   - indeterminate progress spinner 30fps -> 60fps
+        #   - default "Recovery performance mode" Balanced -> High performance
+        # Both are plain text substitutions with match-count assertions, so a
+        # silently ineffective patch fails the build instead of wasting 2h.
         run: |
           ROOT="$HOME/fox_12.1"
           SRC="$GITHUB_WORKSPACE/recovery/root"
@@ -118,6 +123,27 @@ jobs:
             cp -f "$SRC/twres/images/Whiteink/"*.png "$THEME_DIR/images/Whiteink/"
             cp -f "$SRC/twres/splash.xml" "$THEME_DIR/splash.xml"
             echo "Overlay seeded into $THEME_DIR (images/Whiteink + splash.xml)"
+
+            FPS_FILES="$THEME_DIR/pages/files.xml $THEME_DIR/pages/main.xml $THEME_DIR/pages/templates/base.xml"
+            FPS_COUNT=0
+            for f in $FPS_FILES; do
+              [ -f "$f" ] || { echo "WARN: missing $f"; continue; }
+              n=$(grep -c 'fps="30"' "$f" || true)
+              sed -i 's/fps="30"/fps="60"/g' "$f"
+              FPS_COUNT=$((FPS_COUNT + n))
+            done
+            echo "patched progress animations: $FPS_COUNT (baseline 4)"
+            [ "$FPS_COUNT" -ge 1 ] || { echo "ERROR: no fps=30 found in upstream theme"; exit 1; }
+
+            SETTINGS="$THEME_DIR/pages/settings.xml"
+            if [ -f "$SETTINGS" ]; then
+              n=$(grep -c 'fox_boot_balance_check=1' "$SETTINGS" || true)
+              sed -i 's/fox_boot_balance_check=1/fox_boot_performance_check=1/g' "$SETTINGS"
+              echo "patched performance defaults: $n (baseline 2)"
+              [ "$n" -ge 1 ] || { echo "ERROR: no balance fallback found in settings.xml"; exit 1; }
+            else
+              echo "WARN: settings.xml not found; skipping performance default patch"
+            fi
           else
             echo "WARN: portrait_hdpi theme source not found; relying on recovery/root copy only"
           fi
@@ -128,6 +154,9 @@ jobs:
           echo -n "splash avatar hook: "
           grep -c 'whiteink_splash_avatar' "$SRC/twres/splash.xml"
           grep -q 'whiteink_splash_avatar' "$SRC/twres/splash.xml"
+          echo -n "init.rc perf service: "
+          grep -c 'fox_perf' "$SRC/init.recovery.qcom.rc"
+          grep -q 'fox_perf' "$SRC/init.recovery.qcom.rc"
 
       - name: Build recovery
         # GitHub Actions runs steps with `bash -e` by default. AOSP envsetup.sh

@@ -42,9 +42,25 @@ on fs
     symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
     write /proc/sys/kernel/firmware_config/force_sysfs_fallback 1
 
+# Whiteink: R12 renders SVG icons, shadows and rounded corners purely on the
+# CPU at 1240x2772, and the default "balanced" governor visibly drops frames
+# during gesture navigation and page transitions. Lock all clusters to the
+# performance governor while recovery is running.
+# /sbin/setgovernor ships with OrangeFox R12; it checks
+# scaling_available_governors and skips offline CPUs, so this is safe even if
+# the kernel does not expose "performance". Users can still override it at
+# runtime from Settings -> Performance.
+service fox_perf /system/bin/sh /sbin/setgovernor performance
+    user root
+    group root
+    disabled
+    oneshot
+    seclabel u:r:recovery:s0
+
 on boot
     setprop sys.usb.config adb
     start variant-script
+    start fox_perf
 
 on property:twrp.modules.loaded=true
     start touch_report
@@ -68,3 +84,6 @@ service modules_mount /system/bin/modules_mount.sh
 
 on property:twrp.decrypt.done=true
     start modules_mount
+    # OrangeFox re-applies its own performance mode during startup, so
+    # re-assert the governor after decryption, once the UI is about to run.
+    start fox_perf
