@@ -1,19 +1,19 @@
 # OrangeFox Recovery for realme GT Neo5 / GT3 (RMXTARO · senna)
 
-**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r16`
+**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r18`
 
 > [!IMPORTANT]
-> **`ofox-RMXTARO-r16` 已出包并通过离线解包验证**：线性马达 v4 三档力度映射、
-> 运行时增益开关、159 个 RichTap 波形全部在镜像内；同时去掉了 `TW_FRAMERATE 30`
-> 这个真正的全局重绘天花板和拖动时的 500 ms 抓帧窗口。r12 / r13 / r15 请勿使用
-> （r15 未产出任何产物）。
+> **`ofox-RMXTARO-r18` 已出包（144 Hz 面板时序 + 144 fps 主循环）**：run 18 十五步全绿，
+> `mka_rc=0`，`0 FAILED`，build 步骤 `01:34:29`，可下载 `recovery.img` / zip。
+> 本轮把面板从一直被钉住的 **60 Hz** 切到 **144 Hz**（见
+> [144 Hz：面板一直被迫跑 60 Hz](#144-hz面板一直被迫跑-60-hz)），
+> 并把 `TW_FRAMERATE` 提到 144。r12 / r13 / r15 请勿使用（r15 未产出任何产物）。
 >
-> **r17（源码 patch v5）正在验证 144 Hz 面板时序**：r16 之前 recovery 一直跑在
-> **60 Hz** 上——不是没有 144 Hz 模式，而是 `graphics_drm.cpp::find_main_monitor()`
-> 只认内核标记 `DRM_MODE_TYPE_PREFERRED` 的那条时序，而它恰好是 60 Hz。见
-> [144 Hz：面板一直被迫跑 60 Hz](#144-hz面板一直被迫跑-60-hz)。
-> 线性马达的**力度**在本机已达硬件上限，r16 之后不再改动（见
-> [力度上限：为什么停在这里](#力度上限为什么停在这里)）。
+> **待实机确认**：刷入后 `adb shell cat /tmp/fox_drm.log` 应出现
+> `vrefresh=144 modeset_ok=1`；若是 `vrefresh=60`，说明 144 Hz 时序被内核拒绝、黑屏保险
+> 已退回 60 Hz（画面正常但没提速）。线性马达力度已在 r16 定型，本轮不再改动
+> （见 [力度上限：为什么停在这里](#力度上限为什么停在这里)）。
+
 
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
 由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
@@ -58,9 +58,11 @@
 | 界面 | Material You Expressive、SVG 图标引擎、Fox White / Fox Dark 双主题、Inter 字体、手势导航 |
 | 默认语言 | **简体中文**（`TW_DEFAULT_LANGUAGE := zh_CN`，可在 设置 → 语言 切换） |
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
-| 最新成功构建 | Actions **run 16**（`42986555580`，head `4489b2d`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:03:36`，整个 run 约 **69 min**；`recovery.img`、zip 均已下载并 SHA256 校验，离线解包确认 v4 三档映射 + gain 开关 + 159 个 `/odm/etc` 波形、4 个 60 fps 转圈动画全部在镜像内 |
+| 上一版构建 | Actions **run 16**（`42986555580`，head `4489b2d`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:03:36`，整个 run 约 **69 min**；`recovery.img`、zip 均已下载并 SHA256 校验，离线解包确认 v4 三档映射 + gain 开关 + 159 个 `/odm/etc` 波形、4 个 60 fps 转圈动画全部在镜像内 |
 | 上一轮失败 | **run 15**（`42985063405`，head `65d401e7`）在**第 9 步注入闸门 6 分钟内**失败：`patch_gui_framerate.py` 用了 Python 3.13 才有的 `Path.read_text(newline=)`，runner 是 3.10。已修（改用 `open()`，基线降到 3.8），并新增 `scripts/check_py_compat.py` 静态拦截——**第 10 步编译未启动，没有浪费 2 小时** |
-| 本轮改动（待验证） | **r17 / patch v5**：① 新增 `scripts/patch_minuitwrp_drm_hz.py`，让 `graphics_drm.cpp` 在原生分辨率下选 **144 Hz** 时序并在失败时回退到内核首选时序；② `TW_FRAMERATE` 主循环节拍 `120 → 144`（`BoardConfig.mk` 与 `gui/objects.hpp` 同步）。线性马达力度不再改动 |
+| 最新构建 | Actions **run 18**（`43010066481`，head `6c142d7`）**成功**，15 步全绿，`mka_rc=0`，`0 FAILED`，build 步骤 `01:34:29`，整个 run 约 **104 min**；release `ofox-RMXTARO-r18` 已发布 4 个 assets（`recovery.img` 100.0 MB、zip 70.4 MB、两个 `.md5`） |
+| 本轮改动 | **patch v5**：① 新增 `scripts/patch_minuitwrp_drm_hz.py`，让 `graphics_drm.cpp` 在原生分辨率下选 **144 Hz** 时序并在失败时回退到内核首选时序；② `TW_FRAMERATE` 主循环节拍 `120 → 144`（`BoardConfig.mk` 与 `gui/objects.hpp` 同步）。线性马达力度不再改动 |
+| 后端确认 | 编译日志里 `//bootable/recovery/minuitwrp:libminuitwrp clang++ graphics_drm.cpp` 与 `graphics_drm.cpp [arm]` 均在列（77% 处），**DRM 后端确实参与编译**，补丁不会挂空 |
 | 编译耗时波动 | 同样的 `-j1`、同样 28030 个 target：run 14 用 **122 min**，run 16 用 **64 min**。差异来自**换了一台 runner 虚拟机**（`1000000821` → `1000000823`），与提交内容无关，不是「越编越慢」 |
 | 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-*.zip` + 两个 `.md5` |
 
