@@ -72,6 +72,28 @@ class PatchError(Exception):
     pass
 
 
+# NOTE (portability): the CI runner is ubuntu-22.04, whose system python3 is
+# 3.10. Path.read_text(newline=...) only exists in 3.13+, and Path.write_text
+# (newline=...) only in 3.10+, so relying on them broke run #15 with
+#     TypeError: Path.read_text() got an unexpected keyword argument 'newline'
+# A local machine running a much newer CPython cannot catch that. Everything
+# below therefore sticks to APIs available since Python 3.8 and uses the
+# builtin open() whenever byte-exact line endings matter.
+MIN_PY = (3, 8)
+
+
+def read_raw(path):
+    """Read text preserving the original line endings exactly."""
+    with open(str(path), "r", encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def write_raw(path, text):
+    """Write text without translating line endings."""
+    with open(str(path), "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+
+
 RULES = [
     ("objects.hpp", OBJECTS_OLD, OBJECTS_NEW,
      ["#define TW_FRAMERATE 120", "#undef TW_FRAMERATE"]),
@@ -92,7 +114,7 @@ def apply(gui_dir):
         path = gui_dir / name
         if not path.is_file():
             raise PatchError("missing %s" % path)
-        raw = path.read_text(encoding="utf-8", newline="")
+        raw = read_raw(path)
         nl = "\r\n" if "\r\n" in raw else "\n"
         text = raw.replace("\r\n", "\n")
 
@@ -149,6 +171,12 @@ def main():
                     help="report only, do not write files")
     args = ap.parse_args()
 
+    print("python %s (min supported %d.%d)"
+          % (sys.version.split()[0], MIN_PY[0], MIN_PY[1]))
+    if sys.version_info < MIN_PY:
+        print("ERROR: this script needs Python %d.%d+" % MIN_PY)
+        return 1
+
     gui_dir = Path(args.gui_dir)
     if not gui_dir.is_dir():
         print("ERROR: not a directory: %s" % gui_dir)
@@ -158,7 +186,7 @@ def main():
         changed, notes, patches = apply(gui_dir)
         if not args.check:
             for name, (out, _) in patches.items():
-                (gui_dir / name).write_text(out, encoding="utf-8", newline="")
+                write_raw(gui_dir / name, out)
                 print("wrote %s" % (gui_dir / name))
             again, _, _ = apply(gui_dir)
             if again:

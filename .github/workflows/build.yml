@@ -141,6 +141,13 @@ jobs:
         # Every patch has match-count / post-condition assertions, so a
         # silently ineffective patch fails the build instead of wasting 2h.
         run: |
+          # Guard the patch scripts against APIs newer than the runner's python3.
+          # ubuntu-22.04 ships python3.10; run #15 died on Path.read_text(newline=)
+          # which is 3.13+, because the dev machine runs 3.14 and a local replay
+          # therefore proved nothing. This burns seconds, not two hours.
+          python3 -V
+          python3 "$GITHUB_WORKSPACE/scripts/check_py_compat.py" "$GITHUB_WORKSPACE/scripts" --target 3.8
+
           ROOT="$HOME/fox_12.1"
           SRC="$GITHUB_WORKSPACE/recovery/root"
           THEME_DIR="$(find "$ROOT/bootable/recovery/gui/theme" -name ui.xml -path '*portrait_hdpi*' -printf '%h\n' 2>/dev/null | head -1)"

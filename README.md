@@ -53,6 +53,7 @@
 | 默认语言 | **简体中文**（`TW_DEFAULT_LANGUAGE := zh_CN`，可在 设置 → 语言 切换） |
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
 | 最新成功构建 | Actions **run 14**（`42964912250`，head `d743ef0`）成功，15 步全绿，`mka_rc=0`，build 步骤 `02:02:06`，整个 run 约 **2h09m**；产物已离线解包验证，v3 补丁与 159 个 `/odm/etc` 波形全部在镜像内 |
+| 上一轮失败 | **run 15**（`42985063405`，head `65d401e7`）在**第 9 步注入闸门 6 分钟内**失败：`patch_gui_framerate.py` 用了 Python 3.13 才有的 `Path.read_text(newline=)`，runner 是 3.10。已修（改用 `open()`，基线降到 3.8），并新增 `scripts/check_py_compat.py` 静态拦截——**第 10 步编译未启动，没有浪费 2 小时** |
 | 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-*.zip` + 两个 `.md5` |
 
 - `fox_12.1` manifest 拉取的 `bootable/recovery` 已是 R12.0 新 UI，**无需再迁移分支**；
@@ -341,6 +342,14 @@ framebuffer，**按需重绘**——静止时一帧都不画，只有触摸跟�
 后置断言，失效直接让 CI 失败）：`30 → 120` 的编译期节拍、`500 ms → 2 帧` 的输入窗口、
 `> → >=` 的动画除法。**120 是上限不是承诺**：实际帧率仍由 CPU 软渲染一帧的耗时决定，
 但 30 fps 的人为天花板被去掉了，拖动不再被 500 ms 窗口卡住。
+
+> [!IMPORTANT]
+> **补丁脚本只能用 Python 3.8 就有的 API。** run 15 就是在第 9 步 6 分钟内挂掉的：
+> `TypeError: Path.read_text() got an unexpected keyword argument 'newline'`——
+> `read_text(newline=)` 是 **3.13 才加**的参数，本地跑的是 3.14 所以重放全过，
+> 而 runner（`ubuntu-22.04`）的系统 `python3` 是 3.10。现在 `scripts/check_py_compat.py`
+> 会在注入步骤最前面用 `ast.parse(feature_version=3.8)` + 新版 API 黑名单静态扫一遍全部
+> 脚本，几十秒内失败，不再白等一轮。
 
 本构建开箱即默认高性能：
 
