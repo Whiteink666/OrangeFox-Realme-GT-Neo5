@@ -116,16 +116,22 @@ RECOVERY_LIBRARY_SOURCE_FILES += \
 TARGET_RECOVERY_QCOM_RTC_FIX := true
 TARGET_RECOVERY_PIXEL_FORMAT := RGBX_8888
 TW_THEME := portrait_hdpi
-# TWRP hardcodes TW_FRAMERATE to 30 in gui/objects.hpp, and
-# gui/animation.cpp divides it by each <animation fps="...">:
-#     if (++mUpdateCount > TW_FRAMERATE / mFPS)
-# The R12 theme's four indeterminate spinners are patched to fps="60" during
-# the cloud build; leaving the 30 baseline makes 30/60 == 0 (integer
-# division), i.e. the two values disagree. Keep them in sync at 60.
-# IMPORTANT: this is the UI animation pacing ONLY. It does NOT set the panel
-# scanout refresh rate - that lives in the kernel DRM/panel driver and is
-# handled at runtime by sbin/fox_refresh.sh.
-TW_FRAMERATE := 60
+# IMPORTANT (found in r14 post-mortem): OrangeFox 12.1's Android.mk does NOT
+# forward TW_FRAMERATE into a -DTW_FRAMERATE=... compiler flag, so the value
+# below has historically been a NO-OP. The real global redraw cadence came
+# from gui/objects.hpp:
+#     #ifndef TW_FRAMERATE
+#     #define TW_FRAMERATE 30     <-- the actual 30 fps ceiling
+#     #endif
+# gui/gui.cpp::loopTimer() also used a 500 ms window whenever an input event
+# arrived, collapsing drags to ~2 redraws/sec. Both are now fixed at the
+# source level by scripts/patch_gui_framerate.py (30 -> 120, 500 ms -> 2
+# frames, animation divider '>' -> '>='). Keep this variable at 120 for
+# consistency and in case a future upstream starts forwarding it, but do NOT
+# rely on it alone.
+# This is the UI redraw/animation pacing ONLY, NOT the panel scanout refresh
+# rate (kernel DRM/panel driver, probed at runtime by sbin/fox_refresh.sh).
+TW_FRAMERATE := 120
 TW_CUSTOM_CPU_TEMP_PATH := "/sys/devices/virtual/thermal/thermal_zone39/temp"
 TW_BRIGHTNESS_PATH := "/sys/devices/platform/soc/ae00000.qcom,mdss_mdp/backlight/panel0-backlight/brightness"
 TW_MAX_BRIGHTNESS := 4095

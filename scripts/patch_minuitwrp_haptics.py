@@ -1,59 +1,50 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-patch_minuitwrp_haptics.py -- Whiteink haptics patch v3
+patch_minuitwrp_haptics.py -- Whiteink haptics patch v4
 
 Rewrites upstream ``bootable/recovery/minuitwrp/events.cpp::vibrate()`` for the
 realme GT Neo5 / GT3 (RMXTARO, AW8697 X-axis linear resonant actuator).
 
-What the user actually reported
--------------------------------
-After r12 the device DID vibrate, but weakly, still like a rotor motor, and
-pulling OrangeFox's vibration sliders to 300 changed nothing.
+History
+-------
+v1 (r12): cached HAL + perform(CLICK). Threw timeout_ms away entirely -> the
+          slider did nothing and 300 felt like a weak 20 ms buzz.
+v2 (r13): restored on(timeout_ms), cancelled - would have buzzed for 300 ms.
+v3 (r14): strength mapping with 2 levels (1-99 / >=100), RichTap waveform
+          ladder, /odm/etc waveform dual-insurance. THE LINEAR MOTOR NOW WORKS.
 
-Investigation of twres/pages/settings.xml:
-    tw_button_vibrate   min=0 max=300
-    tw_keyboard_vibrate min=0 max=300
-    tw_action_vibrate   min=0 max=500
-These are MILLISECONDS (durations), not amplitudes. On an X-axis LRA, longer
-does NOT mean stronger - a 300 ms constant-amplitude on() is exactly the
-rotor-like buzz we want to remove.
+v4: user feedback "调到 300 震动有点小，现在震动应该是适合 100 左右，或者是 50"
+    -> r14's maximum (300) is about right for a *mid* slider value; the top end
+    must be stronger and the curve steeper.
 
-v1 (r12) threw timeout_ms away entirely: it returned as soon as perform()
-reported isOk() (ignoring played_ms), and its fallback was a hard-coded 20 ms
-on(). That is why "300" made no difference.
-v2 (r13, cancelled) would have honoured timeout_ms on the on() path - i.e. a
-300 ms buzz, even more rotor-like. Wrong direction.
-
-What v3 does
+What v4 does
 ------------
-  * Treats timeout_ms as a STRENGTH INTENT, not a duration:
-        <= 0        -> no vibration (respects the slider's off position)
-        1 .. 99     -> level 1 (MEDIUM / 0.8 amplitude)
-        >= 100      -> level 2 (STRONG / 1.0 amplitude / HEAVY_CLICK)
-  * Drives a SHORT, crisp pulse (20 / 30 / 40 ms by level), never 300 ms.
-  * Tries RichTap waveforms first, stepping down on failure:
-        level 2 -> HEAVY_CLICK + STRONG -> CLICK + MEDIUM -> CLICK + LIGHT
-        level 1 -> CLICK + MEDIUM       -> CLICK + LIGHT
-        level 0 -> CLICK + LIGHT
-    A waveform counts as successful only when isOk() && played_ms > 0.
-  * If no waveform is available: setAmplitude(level amplitude) followed by a
-    short on(drive_ms). High amplitude + short duration is the correct way to
-    drive an LRA without a waveform library.
-  * HAL unavailable / both AIDL calls failed -> sysfs LED / timed_output
-    fallback using the SHORT duration, so vibration is never silently lost.
-  * Synchronous off() before each event replaces upstream's detached per-tap
-    thread; caches the IVibrator proxy (mutex + 500 ms retry); 35 ms throttle.
-  * Writes mode changes to /tmp/fox_haptics.log for field diagnosis.
-  * /tmp/fox_haptics_force_on forces the amplitude+on() path, no rebuild.
+  * THREE levels instead of two, with thresholds pulled DOWN:
+        <= 0        -> off
+        1 .. 49     -> level 1 (light)
+        50 .. 149   -> level 2 (= exactly r14's former "300" feel)
+        >= 150      -> level 3 (new, strongest)
+  * Always calls setAmplitude() BEFORE the waveform. v3 only set amplitude in
+    the on() fallback, so the waveform path inherited whatever default
+    amplitude the vendor HAL had - the most likely reason 300 felt small.
+  * Level 3 never degrades to a weak CLICK+LIGHT waveform: if HEAVY_CLICK is
+    unavailable it goes straight to full amplitude + a 60 ms on() pulse.
+  * Optional double pulse for level 3 via /tmp/fox_haptics_double (off by
+    default, so no behaviour change unless explicitly enabled).
+  * Runtime gain: /tmp/fox_haptics_gain holds an integer -3..3 that shifts the
+    level. Lets the user dial strength with adb WITHOUT another ~2 h rebuild.
+    Read at most once every 2 s so the input thread stays cheap.
+  * Keeps everything that made r14 work: cached IVibrator proxy (mutex + 500 ms
+    retry), synchronous off(), 35 ms throttle, no threads, sysfs fallback,
+    /tmp/fox_haptics.log, /tmp/fox_haptics_force_on.
 
 Safety
 ------
-  * Function-level replacement (brace-matched), not a blind sed.
+  * Function-level brace-matched replacement, not blind sed.
   * Exact match-count / post-condition assertions: an ineffective patch exits
     1 and fails CI instead of wasting ~2 h.
-  * Idempotent: running twice is a no-op.
-  * Non-AIDL branches (HIDL 1.2, Samsung, sysfs) preserved verbatim.
+  * Idempotent; non-AIDL branches (HIDL 1.2, Samsung, sysfs) preserved.
 
 Usage
 -----
@@ -63,17 +54,16 @@ Usage
 import argparse
 import sys
 
-MARKER = "// Whiteink haptics patch v3"
+MARKER = "// Whiteink haptics patch v4"
 SIGNATURE = "int vibrate(int timeout_ms)"
 
 NEW_FUNCTION = r'''int vibrate(int timeout_ms)
 {
-    // === Whiteink haptics patch v3 ===
+    // === Whiteink haptics patch v4 ===
     // OrangeFox's vibration sliders (0-300 / 0-500) are MILLISECONDS, not
-    // amplitude. On an X-axis LRA, longer != stronger: a 300 ms on() is a
-    // rotor-like buzz. Treat the value as a strength intent and always drive
-    // a short, crisp pulse. v1 discarded timeout_ms entirely (fixed 20 ms or
-    // a fixed CLICK), v2 would have produced a 300 ms buzz - both wrong.
+    // amplitude. Treat the value as a strength intent. v3 had only 2 levels
+    // and never called setAmplitude() on the waveform path, which made even
+    // the 300 setting feel weak. v4 uses 3 levels with thresholds pulled down.
     if (timeout_ms > 10000) timeout_ms = 1000;
     char tout[6];
     sprintf(tout, "%i", timeout_ms);
@@ -91,24 +81,52 @@ NEW_FUNCTION = r'''int vibrate(int timeout_ms)
     static std::mutex sVibMutex;
     static std::shared_ptr<IVibrator> sVib;
     static std::chrono::steady_clock::time_point sLastProbe;
+    static std::chrono::steady_clock::time_point sLastGainRead;
+    static int sGain = 0;
     static int sLastMode = -1;
 
     if (timeout_ms <= 0) return 0;  // slider at 0 means vibration disabled
-    const int level = timeout_ms >= 100 ? 2 : (timeout_ms >= 1 ? 1 : 0);
-    const float amplitude = level == 2 ? 1.0f : (level == 1 ? 0.8f : 0.55f);
-    const int drive_ms = 20 + level * 10;  // 20 / 30 / 40 ms, never 300
+    const auto now = std::chrono::steady_clock::now();
+
+    // /tmp/fox_haptics_gain: integer -3..3, shifts the strength level.
+    //   adb shell "echo 1 > /tmp/fox_haptics_gain"   -> one step stronger
+    //   adb shell "echo -1 > /tmp/fox_haptics_gain"  -> one step softer
+    //   adb shell "echo 3 > /tmp/fox_haptics_gain"   -> force max regardless of slider
+    // Cached for 2 s so a file read never lands on the input hot path.
+    if (now - sLastGainRead > std::chrono::seconds(2)) {
+        sLastGainRead = now;
+        int g = 0;
+        std::ifstream gf("/tmp/fox_haptics_gain");
+        if (gf.good() && (gf >> g)) {
+            if (g > 3) g = 3;
+            if (g < -3) g = -3;
+            sGain = g;
+        } else {
+            sGain = 0;
+        }
+    }
+
+    // r14 used 100 as the only threshold. v4 pulls it down so 50 / 100 already
+    // get the strength that used to require 300, and 300 gets a new top level.
+    int level = timeout_ms >= 150 ? 3 : (timeout_ms >= 50 ? 2 : 1);
+    level += sGain;
+    if (level < 0) level = 0;
+    if (level > 3) level = 3;
+    if (level == 0) return 0;
+
+    static const float kAmp[4]   = { 0.0f, 0.70f, 0.90f, 1.00f };
+    static const int   kDrive[4] = {    0,     20,     40,     60 };
+    const float amplitude = kAmp[level];
+    const int drive_ms = kDrive[level];   // 20 / 40 / 60 ms, never 300
     char dstr[8];
     sprintf(dstr, "%i", drive_ms);
 
-    const auto now = std::chrono::steady_clock::now();
     // Gesture navigation can emit events faster than an LRA can reproduce.
     if (now - sLastBuzz < std::chrono::milliseconds(35)) return 0;
     sLastBuzz = now;
 
-    // Runtime kill switch, no rebuild needed:
-    //   adb shell touch /tmp/fox_haptics_force_on -> amplitude + short on()
-    //   adb shell rm    /tmp/fox_haptics_force_on -> back to auto waveform
     const bool force_on = (access("/tmp/fox_haptics_force_on", F_OK) == 0);
+    const bool double_pulse = (access("/tmp/fox_haptics_double", F_OK) == 0);
 
     // realme.vibrator starts only after vendor modules load; retry at most
     // every 500 ms, then keep the proxy instead of a per-tap binder lookup.
@@ -130,14 +148,21 @@ NEW_FUNCTION = r'''int vibrate(int timeout_ms)
         // detached worker after a timed wait; doing it synchronously removes
         // the per-tap thread without losing the off() state handling.
         sVib->off();
+        // v4: set the amplitude BEFORE the waveform too. v3 only did this in
+        // the on() fallback, so waveform playback used the HAL default.
+        sVib->setAmplitude(amplitude);
 
         if (!force_on) {
-            static const Effect kEffects[3] = {
-                Effect::CLICK, Effect::CLICK, Effect::HEAVY_CLICK };
-            static const EffectStrength kStrengths[3] = {
-                EffectStrength::LIGHT, EffectStrength::MEDIUM, EffectStrength::STRONG };
-            // Heavier settings try heavier waveforms, then step down.
-            for (int s = level; s >= 0; --s) {
+            static const Effect kEffects[4] = {
+                Effect::CLICK, Effect::CLICK,
+                Effect::HEAVY_CLICK, Effect::HEAVY_CLICK };
+            static const EffectStrength kStrengths[4] = {
+                EffectStrength::LIGHT, EffectStrength::MEDIUM,
+                EffectStrength::STRONG, EffectStrength::STRONG };
+            // Level 1/2 step down through the ladder. Level 3 deliberately
+            // does NOT step down, so the top end never becomes a weak tick.
+            const int floor_s = (level == 3) ? 3 : 1;
+            for (int s = level; s >= floor_s; --s) {
                 int32_t played = 0;
                 const auto status = sVib->perform(
                     kEffects[s], kStrengths[s], nullptr, &played);
@@ -150,11 +175,17 @@ NEW_FUNCTION = r'''int vibrate(int timeout_ms)
                     break;
                 }
             }
+            // Optional extra pulse at the top level, off unless requested.
+            if (mode == 1 && level == 3 && double_pulse) {
+                int32_t extra = 0;
+                sVib->perform(Effect::HEAVY_CLICK, EffectStrength::STRONG,
+                              nullptr, &extra);
+                played_ms += extra;
+            }
         }
         if (mode == 0) {
-            // No usable waveform: high amplitude + SHORT on(). Never feed
+            // No usable waveform: full amplitude + a SHORT on(). Never feed
             // timeout_ms to on() - that would buzz like a rotor for 300 ms.
-            sVib->setAmplitude(amplitude);
             if (sVib->on((uint32_t)drive_ms, nullptr).isOk()) {
                 mode = 2;
             }
@@ -178,9 +209,9 @@ NEW_FUNCTION = r'''int vibrate(int timeout_ms)
         sLastMode = mode;
         FILE* f = fopen("/tmp/fox_haptics.log", "a");
         if (f != nullptr) {
-            fprintf(f, "mode=%d level=%d used=%d amp=%.2f drive_ms=%d "
+            fprintf(f, "mode=%d level=%d used=%d gain=%d amp=%.2f drive_ms=%d "
                     "timeout_ms=%d played_ms=%d force_on=%d\n",
-                    mode, level, used_level, amplitude, drive_ms,
+                    mode, level, used_level, sGain, amplitude, drive_ms,
                     timeout_ms, played_ms, force_on ? 1 : 0);
             fclose(f);
         }
@@ -249,8 +280,8 @@ def apply(text):
     if MARKER in text:
         if text.count("int vibrate(int timeout_ms)") != 1:
             raise PatchError("already patched but vibrate() signature count != 1")
-        for token in ("Effect::HEAVY_CLICK", "setAmplitude(", "const int level =",
-                      "played > 0", "fox_haptics_force_on",
+        for token in ("Effect::HEAVY_CLICK", "setAmplitude(", "const int drive_ms",
+                      "fox_haptics_gain", "played > 0", "fox_haptics_force_on",
                       "#include <chrono>", "#include <mutex>"):
             if token not in text:
                 raise PatchError("already patched but missing %r" % token)
@@ -298,21 +329,23 @@ def apply(text):
     # --- 4. replace the function -------------------------------------------
     start, end = find_function_span(text)
     text = text[:start] + NEW_FUNCTION + text[end:]
-    notes.append("PASS replaced vibrate() with v3 strength-mapping version")
+    notes.append("PASS replaced vibrate() with v4 three-level strength mapping")
 
     # --- 5. post-conditions -------------------------------------------------
     s2, e2 = find_function_span(text)
     new_fn = text[s2:e2]
     required = ("perform(", "Effect::CLICK", "Effect::HEAVY_CLICK",
-                "EffectStrength::STRONG", "setAmplitude(",
+                "EffectStrength::STRONG", "setAmplitude(amplitude)",
                 "std::lock_guard<std::mutex>", "kVibratorInstance",
                 "USE_QTI_HAPTICS", "USE_SAMSUNG_HAPTICS", "return 0;",
-                "const int level = timeout_ms >= 100 ? 2",
-                "const int drive_ms = 20 + level * 10",
+                "timeout_ms >= 150 ? 3 : (timeout_ms >= 50 ? 2 : 1)",
+                "static const int   kDrive[4] = {    0,     20,     40,     60 };",
                 "status.isOk() && played > 0",
                 "sVib->on((uint32_t)drive_ms, nullptr).isOk()",
                 "sVib->off()", "LEDS_HAPTICS_ACTIVATE_FILE",
-                "/tmp/fox_haptics.log", "/tmp/fox_haptics_force_on")
+                "/tmp/fox_haptics.log", "/tmp/fox_haptics_force_on",
+                "/tmp/fox_haptics_gain", "/tmp/fox_haptics_double",
+                "const int floor_s = (level == 3) ? 3 : 1;")
     for token in required:
         if token not in new_fn:
             raise PatchError("patched vibrate() missing %r" % token)
@@ -326,8 +359,8 @@ def apply(text):
         raise PatchError("brace imbalance in patched vibrate()")
     if "#include <chrono>" not in text or "#include <mutex>" not in text:
         raise PatchError("standard headers missing after patch")
-    notes.append("PASS post-conditions: strength mapping, short pulse, "
-                 "waveform ladder, no thread")
+    notes.append("PASS post-conditions: 3 levels, gain file, amplitude before "
+                 "waveform, no thread")
 
     return text, True, notes
 

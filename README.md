@@ -1,21 +1,23 @@
 # OrangeFox Recovery for realme GT Neo5 / GT3 (RMXTARO · senna)
 
-**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r12`
+**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r14`
 
-> [!WARNING]
-> **`ofox-RMXTARO-r12` 的马达体验仍不对：有振动，但很弱、把振动设置拉到 300 也毫无变化、
-> 仍是转子式「嗡嗡」感。** 这**不是**完全没振动——是 patch v1 丢掉了设置值并回落到固定
-> 20 ms `on()`，详见 [硬件适配](#硬件适配)。强度映射版（patch v3）正在构建，出包前不建议刷 r12。
+> [!IMPORTANT]
+> **`ofox-RMXTARO-r14` 已实测：X 轴线性马达的 RichTap 波形真的播出来了。**
+> 当前正在构建的是 v4 微调版（更陡的力度曲线 + 去掉 30 fps 全局上限），见下方 NOTE。
+> 在 v4 出包前，r14 就是可刷的最新稳定版；r12 / r13 请勿使用。
 
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
 由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
 
 > [!NOTE]
-> 修复版（patch v3）做三件事：把振动滑块的 `0–300` 当**强度意图**而非毫秒时长，
-> 只驱动 20 / 30 / 40 ms 的短脉冲；按 `HEAVY_CLICK + STRONG → CLICK + MEDIUM →
-> CLICK + LIGHT` 阶梯播放 RichTap 波形；并把 159 个 `effect_*.bin` 补进 ramdisk 的
-> `/odm/etc/vibrator/`，让 `perform()` 真的能找到波形。高性能 governor、60 fps
-> 转圈动画与全部自定义页面保持不变。
+> r14（patch v3）把振动滑块的 `0–300` 当**强度意图**而非毫秒时长，按
+> `HEAVY_CLICK + STRONG → CLICK + MEDIUM → CLICK + LIGHT` 播放 RichTap 波形，并把
+> 159 个 `effect_*.bin` 补进 ramdisk 的 `/odm/etc/vibrator/`，让 `perform()` 找得到波形。
+> v4 针对实测反馈再做三件事：**三档力度**（阈值 50 / 150，让 50、100 拿到原来 300 的
+> 力度，300 更强）、**波形播放前也 `setAmplitude()`**、以及运行时增益文件
+> `/tmp/fox_haptics_gain`（不用重编译就能调力度）；同时修掉真正的 30 fps 主循环天花板
+> 与 500 ms 输入窗口，见 [UI 流畅度](#ui-流畅度)。
 > 刷入前请先读 [刷入](#刷入) 与 [已知注意事项](#已知注意事项)。
 
 | 项目 | 信息 |
@@ -50,7 +52,7 @@
 | 界面 | Material You Expressive、SVG 图标引擎、Fox White / Fox Dark 双主题、Inter 字体、手势导航 |
 | 默认语言 | **简体中文**（`TW_DEFAULT_LANGUAGE := zh_CN`，可在 设置 → 语言 切换） |
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
-| 最新成功构建 | Actions **run 12**（`42861234017`，head `f31b6d1`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:59:45`，整个 run 约 **2h06m**；run 13（patch v2）因方向错误已取消 |
+| 最新成功构建 | Actions **run 14**（`42964912250`，head `d743ef0`）成功，15 步全绿，`mka_rc=0`，build 步骤 `02:02:06`，整个 run 约 **2h09m**；产物已离线解包验证，v3 补丁与 159 个 `/odm/etc` 波形全部在镜像内 |
 | 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-*.zip` + 两个 `.md5` |
 
 - `fox_12.1` manifest 拉取的 `bootable/recovery` 已是 R12.0 新 UI，**无需再迁移分支**；
@@ -314,20 +316,44 @@ Segoe UI Emoji 渲染真实爪印并统一染成狐橙 `#ed6f02`，作为 PNG �
 
 Recovery 里没有 Android 的 SurfaceFlinger / HWUI / vsync 合成：界面由 CPU 软件渲染到
 framebuffer，**按需重绘**——静止时一帧都不画，只有触摸跟手、页面切换和转圈动画时逐帧
-重绘。所以不存在「恒定 60fps」，体感卡顿来自单帧耗时过长。R12 的 SVG 图标、阴影与圆角
-在 1240×2772 全屏上光栅化，一帧约 13.7 MB（`RGBX_8888`），CPU 降频时尤其明显。
+重绘。R12 的 SVG 图标、阴影与圆角在 1240×2772 全屏上光栅化，一帧约 13.7 MB
+（`RGBX_8888`），CPU 降频时尤其明显。
 
-本构建做了三件事，开箱即默认高性能：
+### r14 复盘：真的有一个 30 fps 硬上限
+
+> [!IMPORTANT]
+> 这里之前写「全局 UI 没有帧率常量」是**错的**。r14 实机反馈「不仅在文件页，整个页面
+> 都只有 60 帧或 30 帧的样子」之后，我把 OrangeFox `fox_12.1` 源码翻了一遍，找到三处
+> 真实节流：
+>
+> 1. `gui/objects.hpp` 里 `#ifndef TW_FRAMERATE / #define TW_FRAMERATE 30 / #endif`。
+>    OrangeFox 12.1 的 `Android.mk` **不把 `TW_FRAMERATE` 转成 `-DTW_FRAMERATE=...`
+>    编译宏**（只有 `TW_DEFAULT_LANGUAGE` 等少数变量会），所以我们在 `BoardConfig.mk`
+>    里写的 `TW_FRAMERATE := 60` **一直是空操作**，编译进去的仍是 30。
+> 2. `gui/gui.cpp::loopTimer()`：
+>    `long timeout = got_event ? 500000000 : (1.0 / TW_FRAMERATE * 1000000000);`
+>    无输入时每 `1/30 s ≈ 33 ms` 才返回一次（30 fps 上限）；**一读到输入事件就把窗口
+>    拉到 500 ms**，拖动时重绘被压到约 2 次/秒，这正是「滑动发涩」的主因。
+> 3. `gui/animation.cpp` 的 `if (++mUpdateCount > TW_FRAMERATE / mFPS)` 用 `>` 配整数
+>    除法，节拍提高后动画会每 3 帧才走一帧。
+
+`scripts/patch_gui_framerate.py` 在每次云端 sync 后对这三处做精确替换（带匹配计数与
+后置断言，失效直接让 CI 失败）：`30 → 120` 的编译期节拍、`500 ms → 2 帧` 的输入窗口、
+`> → >=` 的动画除法。**120 是上限不是承诺**：实际帧率仍由 CPU 软渲染一帧的耗时决定，
+但 30 fps 的人为天花板被去掉了，拖动不再被 500 ms 窗口卡住。
+
+本构建开箱即默认高性能：
 
 | 改动 | 位置 | 作用 |
 | --- | --- | --- |
 | 开机锁定 `performance` governor | `recovery/root/init.recovery.qcom.rc` 的 `fox_perf` 服务，`on boot` 与解密完成后各触发一次 | 避免默认「均衡」把 UI 线程压到小核低频 |
 | 默认「Recovery 性能模式」改为**高性能** | 云端编译时 patch 上游 `pages/settings.xml` 的两处兜底默认值 | 让 OrangeFox 自身的启动逻辑也用高性能 |
-| 转圈动画 30 → 60 fps | 云端编译时 patch 上游 `pages/{files,main,templates/base}.xml` 共 4 处 | 只影响进度条不确定动画，**不是全局帧率上限** |
+| 转圈动画 30 → 60 fps | 云端编译时 patch 上游 `pages/{files,main,templates/base}.xml` 共 4 处 | 只影响进度条不确定动画 |
+| **去掉 30 fps 全局天花板 / 500 ms 输入窗口** | `scripts/patch_gui_framerate.py` patch `gui/objects.hpp`、`gui/gui.cpp`、`gui/animation.cpp` | 主循环节拍 30 → 120，拖动按 UI 节拍重绘 |
 
 > [!NOTE]
-> 主题里那 4 处 `fps="30"` 的条件都是 `ui_progress`，只控制进度条转圈；全局 UI 没有
-> 帧率常量。所以「没有 60 帧」无法靠改一个数字解决。
+> 主题里那 4 处 `fps="30"` 的条件都是 `ui_progress`，只控制进度条转圈；**全局**节拍是
+> `TW_FRAMERATE`，而且必须由 patch 改源码默认值才有效，光改 `BoardConfig.mk` 没用。
 
 首次进入后建议再确认两处（一次设置即可持久生效）：
 
@@ -379,18 +405,22 @@ vib->on((uint32_t)timeout_ms, nullptr);   // 固定振幅、按毫秒长震
 | 转子马达那种「嗡嗡」感 | `on(ms)` 只给一个**恒定振幅**；线性马达需要预渲染波形。`vendor/odm/etc/vibrator/809/def/effect_*.bin` 里 300+ 个 RichTap 波形一次都没被用上。 |
 | 点击 / 滑动发涩 | 每次虚拟按键都同步走一次 binder `getService()` + `fromBinder()`；设备树原来还开了 `TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF`，会为每次点击新建一个 detached `std::thread` + `usleep(ms)` + `off()`。 |
 
-`scripts/patch_minuitwrp_haptics.py` 在每次云端 sync 后对 `vibrate()` 做函数级重写（当前为 **v3 强度映射版**）：
+`scripts/patch_minuitwrp_haptics.py` 在每次云端 sync 后对 `vibrate()` 做函数级重写（当前为 **v4 三档强度版**）：
 
 1. **缓存 HAL 代理**（mutex 保护；服务晚启动时最多每 500 ms 重试一次），不再每次触摸查 binder；
-2. **`timeout_ms` 当强度意图，不当时长**：`0` 不振动，`1–99` 为 level 1，`≥100` 为 level 2；驱动
-   `20 / 30 / 40 ms` 的短脉冲，**永远不会出现 300 ms 长震**；
-3. **波形阶梯**：level 2 先试 `HEAVY_CLICK + STRONG`，失败降 `CLICK + MEDIUM`，再降 `CLICK + LIGHT`；
+2. **`timeout_ms` 当强度意图，不当时长**：`0` 不振动、`1–49` level 1、`50–149` level 2、
+   `≥150` level 3；驱动 `20 / 40 / 60 ms` 的短脉冲，**永远不会出现 300 ms 长震**；
+3. **波形播放前先 `setAmplitude()`**（v3 只在 `on()` 兜底里设）——这是 r14「300 档还是偏小」
+   最可能的原因：波形路径一直继承 vendor HAL 的默认振幅；
+4. **波形阶梯**：level 2 试 `HEAVY_CLICK + STRONG → CLICK + MEDIUM`；level 3 只用
+   `HEAVY_CLICK + STRONG`，**不降级到轻波形**，失败直接走满振幅短 `on()`；
    只有 `status.isOk() && played > 0` 才算波形播放成功；
-4. 波形不可用时 `setAmplitude(0.55 / 0.8 / 1.0)` 配短 `on(drive_ms)`；HAL 完全不可用时再退到
-   sysfs `/sys/class/leds/vibrator/*` 或 `timed_output`，同样是短时长，**振动不会静默丢失**；
-5. 每次事件同步 `off()` 清状态（替代上游 detached thread）、35 ms 节流、移除 `FIX_OFF` 的
-   `<thread>` / `vib_on_count` 脚手架。patch 带精确匹配计数与后置断言，失效就直接让 CI 失败，
-   不会白白编 2 小时。
+5. **运行时增益** `/tmp/fox_haptics_gain`（整数 `-3..3`，2 秒缓存）可平移力度档位，
+   `/tmp/fox_haptics_double` 给最高档加一次额外脉冲——**调力度不用再编译 2 小时**；
+6. 波形不可用时满振幅 + 短 `on(drive_ms)`；HAL 完全不可用时再退到 sysfs
+   `/sys/class/leds/vibrator/*` 或 `timed_output`，同样是短时长，**振动不会静默丢失**；
+7. 每次事件同步 `off()` 清状态（替代上游 detached thread）、35 ms 节流、移除 `FIX_OFF` 的
+   `<thread>` / `vib_on_count` 脚手架。patch 带精确匹配计数与后置断言，失效就直接让 CI 失败。
 
 > [!NOTE]
 > `TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME := "IVibrator/default"` 与
@@ -451,7 +481,7 @@ vib->on((uint32_t)timeout_ms, nullptr);   // 固定振幅、按毫秒长震
 > 运行时诊断与开关（v3 起可用，**不需要重编译**）：
 > ```powershell
 > adb shell cat /tmp/fox_haptics.log         # mode=1 波形 / 2 setAmplitude+on() / 3 sysfs
->                                            # 同时记录 level / amp / drive_ms / played_ms
+>                                            # 同时记录 level / gain / amp / drive_ms / played_ms
 > adb shell touch /tmp/fox_haptics_force_on  # 强制走 setAmplitude + 短 on()，跳过波形
 > adb shell rm    /tmp/fox_haptics_force_on  # 恢复自动波形
 > adb shell ls /odm/etc/vibrator/809/def/    # 波形是否真的在 ramdisk 里
@@ -459,12 +489,55 @@ vib->on((uint32_t)timeout_ms, nullptr);   // 固定振幅、按毫秒长震
 > 日志只在模式变化时写一行，不会拖慢输入线程。`mode=1` 且 `played_ms>0` 即代表
 > 线性马达波形真正播放成功。
 
+### r14 实测通过，但「300 档偏小」→ v4 微调
+
+> [!NOTE]
+> r14 实机确认 **线性马达已经工作了**（不再是转子嗡嗡感）。剩下的反馈是：
+> 「调到 300 震动还是有点小，现在这个力度应该适合 100 左右或 50」。
+> 也就是说 **r14 的最大档放在滑块中段才合理，顶端还得再强一截**。
+
+v3 只有 2 档（阈值 100），且 `setAmplitude()` 只在波形失败的 `on()` 兜底里调用——
+波形播放成功时振幅完全由 vendor HAL 默认值决定，这是「拉满还是偏小」的最合理解释。
+`DataManager::Vibrate()` 的实现也确认了滑块值确实原样传进 `vibrate(vib_value)`，
+不是没生效：
+
+```cpp
+void DataManager::Vibrate(const string& varName) {
+    int vib_value = 0;
+    GetValue(varName, vib_value);
+    if (vib_value) vibrate(vib_value);
+}
+```
+
+v4 的对应关系：
+
+| 滑块值 | v3 (r14) | v4 | 感受目标 |
+| --- | --- | --- | --- |
+| `0` | 不振 | 不振 | 关闭 |
+| `1–49` | level 1 | level 1 · amp 0.70 · 20 ms · `CLICK+MEDIUM` | 轻 |
+| `50–99` | level 1 | level 2 · amp 0.90 · 40 ms · `HEAVY_CLICK+STRONG` | 中 |
+| `100–149` | level 2 | level 2 · amp 0.90 · 40 ms · `HEAVY_CLICK+STRONG` | 中（≈ r14 的 300） |
+| `≥150` | level 2 | level 3 · amp 1.00 · 60 ms · `HEAVY_CLICK+STRONG`，不降级 | 强 |
+
+如果刷完觉得还不够，先别急着再编译——用运行时增益直接试（即时生效）：
+
+```powershell
+adb shell "echo 1 > /tmp/fox_haptics_gain"   # 整体强一档
+adb shell "echo 3 > /tmp/fox_haptics_gain"   # 无论滑块在哪都锁最高档
+adb shell "echo 0 > /tmp/fox_haptics_gain"   # 恢复
+adb shell touch /tmp/fox_haptics_double      # 最高档加一次额外脉冲
+adb shell cat /tmp/fox_haptics.log           # 看 level / gain / played_ms
+```
+
+增益文件每 2 秒才读一次，不会落在输入热路径上。
+
 > [!IMPORTANT]
 > **144 Hz 不是靠 `BoardConfig.mk` 声明出来的。** recovery 没有 SurfaceFlinger /
 > DisplayManager / SettingsProvider，`settings put system peak_refresh_rate 144`
-> 在这里完全无效；面板扫描模式由内核 DRM / panel 驱动决定。`TW_FRAMERATE` 是
-> TWRP 的 **UI 动画抽帧节拍**（`gui/animation.cpp` 里的 `TW_FRAMERATE / mFPS`），
-> 和面板刷新率是两套东西。
+> 在这里完全无效；面板扫描模式由内核 DRM / panel 驱动决定。`TW_FRAMERATE` 管的是
+> **UI 主循环重绘节拍**（`gui/gui.cpp::loopTimer()`）与动画抽帧
+> （`gui/animation.cpp` 的 `TW_FRAMERATE / mFPS`），和面板扫描率是两套东西。
+> 它同时也确实是一个全局帧率上限——r14 复盘已证实，见 [UI 流畅度](#ui-流畅度)。
 
 > [!NOTE]
 > **「144 Hz 看不出来」和「滑动卡」都不等于面板没跑在 144 Hz。** recovery 没有
@@ -532,10 +605,11 @@ adb shell "cat /sys/class/graphics/fb0/dynamic_fps 2>/dev/null"
 | 编译卡在 41–42% 长时间无输出 | 先看实时日志里的 `HEARTBEAT` 是否还在跳。若心跳也停了，属于 [CI 已知问题](#ci-已知问题实时日志管道冻结)，取消该 run 后用最新 workflow 重跑，或改用本地 WSL2 编译。 |
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
-| 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；已默认锁高性能，再关掉手势导航通常最有效。r12 起还去掉了每次触摸的 binder 查找与新建线程。 |
+| 界面操作起来卡、整个页面只有 60 帧或 30 帧 | **r14 已找到真因**：`gui/objects.hpp` 默认 `TW_FRAMERATE 30`（`BoardConfig.mk` 那行一直是空操作），且 `gui.cpp` 一读到输入就把重绘窗口拉到 500 ms。v4 用 `scripts/patch_gui_framerate.py` 改成 120 节拍 / 2 帧窗口，详见 [UI 流畅度](#ui-流畅度)。另外关掉手势导航仍然最立竿见影。 |
 | 刷了 r12 之后振动很弱，把设置拉到 300 也没变化 | r12（patch v1）把 `timeout_ms` 整个丢了：波形失败时固定走 20 ms `on()`。设置里的 0–300 是**毫秒时长**，不是力度。修复版把当强度意图处理，见 [硬件适配](#硬件适配)。 |
 | 线性马达摸起来还是转子那种「嗡嗡」感 | 恒定振幅的 `on(ms)` 或找不到波形的短震都会是这种感觉。根因之一是 `vibrator_effect.json` 用绝对路径 `/odm/etc/vibrator/...`，而 ramdisk 里原来只有 `vendor/odm/etc/...`；v3 已把 159 个波形补进 `/odm/etc/`。见 [硬件适配](#硬件适配)。 |
-| 想知道这次点击到底走了哪条振动路径 | v3 起 `adb shell cat /tmp/fox_haptics.log`：`mode=1` 波形（含 `level` / `played_ms`） / `mode=2` `setAmplitude` + 短 `on()` / `mode=3` sysfs 兜底；`touch /tmp/fox_haptics_force_on` 可临时强制走 `mode=2`。 |
+| 想知道这次点击到底走了哪条振动路径 | v3 起 `adb shell cat /tmp/fox_haptics.log`：`mode=1` 波形（含 `level` / `gain` / `played_ms`） / `mode=2` `setAmplitude` + 短 `on()` / `mode=3` sysfs 兜底；`touch /tmp/fox_haptics_force_on` 可临时强制走 `mode=2`。 |
+| r14 已经不转子了，但拉到 300 还是偏小 | v3 只有 2 档，且波形路径没设振幅。v4 改三档（50 / 150 阈值）+ 波形前 `setAmplitude()`；也可以**不重编译**先用 `adb shell "echo 1 > /tmp/fox_haptics_gain"` 试强弱，见 [硬件适配](#硬件适配)。 |
 | 144 Hz 没看出来 / 面板刷新率不生效 | 面板刷新率 ≠ UI 帧率；recovery 按需重绘，`fox_refresh.sh` 也只在内核明确广告 144 Hz 时才写，节点不存在就静默跳过。见 [硬件适配](#硬件适配)。 |
 
 ---

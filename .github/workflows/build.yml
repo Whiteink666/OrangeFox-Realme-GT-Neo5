@@ -130,11 +130,14 @@ jobs:
         # assembled from gui/theme/portrait_hdpi at build time, so also seed
         # the same files into the source - this keeps the overlay reproducible
         # on every cloud build regardless of copy order.
-        # This step ALSO applies three patches to the freshly synced upstream
+        # This step ALSO applies four patches to the freshly synced upstream
         # sources (never committed to this repo):
         #   - indeterminate progress spinner 30fps -> 60fps
         #   - default "Recovery performance mode" Balanced -> High performance
-        #   - minuitwrp/events.cpp: per-tap on(ms) -> cached HAL + perform(CLICK)
+        #   - minuitwrp/events.cpp: AIDL haptics v4 with 3-level strength
+        #     mapping, RichTap waveform ladder and a runtime gain file
+        #   - gui/{objects.hpp,gui.cpp,animation.cpp}: remove the real 30 fps
+        #     redraw ceiling and the 500 ms input catch-up window
         # Every patch has match-count / post-condition assertions, so a
         # silently ineffective patch fails the build instead of wasting 2h.
         run: |
@@ -171,26 +174,29 @@ jobs:
             echo "WARN: portrait_hdpi theme source not found; relying on recovery/root copy only"
           fi
 
-          echo "=== Patch upstream minuitwrp haptics: strength mapping + RichTap waveform ==="
+          echo "=== Patch upstream minuitwrp haptics: v4 3-level strength mapping ==="
           EVENTS="$(find "$ROOT" -path '*/minuitwrp/events.cpp' -print -quit)"
           if [ -z "$EVENTS" ] || [ ! -f "$EVENTS" ]; then
             echo "ERROR: minuitwrp/events.cpp not found under $ROOT"
             exit 1
           fi
           python3 "$GITHUB_WORKSPACE/scripts/patch_minuitwrp_haptics.py" "$EVENTS"
-          # v3 post-conditions: timeout_ms is a STRENGTH INTENT, never a 300 ms
-          # on() duration. Waveform-only success requires played > 0.
+          # v4 post-conditions: timeout_ms is a STRENGTH INTENT (never a 300 ms
+          # on() duration), 3 levels, amplitude set BEFORE the waveform, gain
+          # file so strength can be tuned without another 2 h rebuild.
           grep -q 'Effect::CLICK' "$EVENTS"
           grep -q 'Effect::HEAVY_CLICK' "$EVENTS"
           grep -q 'EffectStrength::STRONG' "$EVENTS"
-          grep -q 'setAmplitude(' "$EVENTS"
+          grep -q 'setAmplitude(amplitude)' "$EVENTS"
           grep -q 'std::lock_guard<std::mutex>' "$EVENTS"
           grep -q '#include <chrono>' "$EVENTS"
           grep -q '#include <mutex>' "$EVENTS"
-          grep -q 'const int level = timeout_ms >= 100 ? 2' "$EVENTS"
-          grep -q 'const int drive_ms = 20 + level \* 10' "$EVENTS"
+          grep -q 'timeout_ms >= 150 ? 3 : (timeout_ms >= 50 ? 2 : 1)' "$EVENTS"
+          grep -q 'kDrive\[4\]' "$EVENTS"
           grep -q 'status.isOk() && played > 0' "$EVENTS"
           grep -q 'sVib->on((uint32_t)drive_ms, nullptr).isOk()' "$EVENTS"
+          grep -q '/tmp/fox_haptics_gain' "$EVENTS"
+          grep -q '/tmp/fox_haptics_double' "$EVENTS"
           grep -q '/tmp/fox_haptics_force_on' "$EVENTS"
           grep -q '/tmp/fox_haptics.log' "$EVENTS"
           # Never let v1 (fixed 20 ms) or v2 (300 ms rotor buzz) come back.
@@ -206,7 +212,26 @@ jobs:
             echo "ERROR: upstream per-tap thread path survived the haptics patch"
             exit 1
           fi
-          echo "haptics patch (v3, strength mapping + waveform ladder) OK: $EVENTS"
+          echo "haptics patch (v4) OK: $EVENTS"
+
+          echo "=== Patch upstream GUI framerate: remove the real 30 fps ceiling ==="
+          # OrangeFox 12.1 Android.mk never forwards BoardConfig TW_FRAMERATE
+          # into a -D flag. The compiled value came from gui/objects.hpp (30),
+          # and gui.cpp used a 500 ms catch-up window on any input event.
+          GUI="$(find "$ROOT/bootable/recovery" -path '*/gui/pages.cpp' -printf '%h\n' 2>/dev/null | head -1)"
+          if [ -z "$GUI" ] || [ ! -d "$GUI" ]; then
+            echo "ERROR: bootable/recovery/gui directory not found under $ROOT"
+            exit 1
+          fi
+          python3 "$GITHUB_WORKSPACE/scripts/patch_gui_framerate.py" "$GUI"
+          grep -q '#define TW_FRAMERATE 120' "$GUI/objects.hpp"
+          grep -q '(got_event ? 2 : 1)' "$GUI/gui.cpp"
+          grep -q 'mUpdateCount >= TW_FRAMERATE / mFPS' "$GUI/animation.cpp"
+          if grep -q '#define TW_FRAMERATE 30' "$GUI/objects.hpp" || grep -q '500000000' "$GUI/gui.cpp"; then
+            echo "ERROR: 30 fps default / 500 ms input window survived the framerate patch"
+            exit 1
+          fi
+          echo "framerate patch (v4, 30 -> 120 fps ceiling) OK: $GUI"
 
           echo "=== Whiteink overlay verification ==="
           ls -l "$SRC/sbin/maintainer.xml" "$SRC/twres/splash.xml" "$SRC/twres/images/Whiteink/"*.png
@@ -220,7 +245,7 @@ jobs:
           grep -q 'fox_perf' "$SRC/init.recovery.qcom.rc"
           echo "=== Whiteink hardware wiring verification ==="
           BC="$GITHUB_WORKSPACE/BoardConfig.mk"
-          grep -q '^TW_FRAMERATE := 60$' "$BC"
+          grep -q '^TW_FRAMERATE := 120$' "$BC"
           grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS := true$' "$BC"
           if grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF :=' "$BC"; then
             echo "ERROR: FIX_OFF re-enabled; per-tap std::thread would come back"
