@@ -70,15 +70,72 @@ jobs:
           df -h / || true
 
       - name: Install build dependencies
+        # GitHub's ubuntu-22.04 image points every apt source at
+        #     mirror+file:/etc/apt/apt-mirrors.txt
+        # which resolves to azure.archive.ubuntu.com. When that host's DNS
+        # stops answering, `apt-get update` fails and the run dies in step 5
+        # before a single source file is synced - exactly what happened to both
+        # attempts of run 19 (2026-11-12, "Temporary failure resolving
+        # 'azure.archive.ubuntu.com'"). Nothing in this repo changed that step.
+        # A run that takes 1-2 h should not be lost to one DNS lookup, so:
+        # retry, bypass the Azure mirror, then fall back to another host.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex \
+          PKGS="bc bison build-essential ccache curl flex \
             g++-multilib gcc-multilib git gnupg gperf imagemagick \
             lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev \
             libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush \
             rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
-            openjdk-17-jdk python3
+            openjdk-17-jdk python3"
+
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::ForceIPv4=true"
+
+          try_install() {
+            # shellcheck disable=SC2086
+            sudo apt-get $APT_OPTS update && sudo apt-get $APT_OPTS install -y $PKGS
+          }
+
+          wait_dns() {
+            for i in $(seq 1 12); do
+              if getent hosts "$1" >/dev/null 2>&1; then
+                echo "DNS ok: $1"
+                return 0
+              fi
+              echo "waiting for DNS: $1 ($i/12)"
+              sleep 5
+            done
+            echo "DNS still failing for $1"
+            return 1
+          }
+
+          echo "=== apt attempt 1: image default mirror ==="
+          if try_install; then
+            echo "apt ok on the default mirror"
+          else
+            echo "=== apt attempt 2: bypass /etc/apt/apt-mirrors.txt ==="
+            sudo cp -n /etc/apt/sources.list /etc/apt/sources.list.orig || true
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
+            grep -n '^deb ' /etc/apt/sources.list || true
+            wait_dns archive.ubuntu.com || true
+            if try_install; then
+              echo "apt ok via archive.ubuntu.com"
+            else
+              echo "=== apt attempt 3: kernel.org mirror ==="
+              sudo sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirrors.edge.kernel.org/ubuntu|g' /etc/apt/sources.list
+              sudo sed -i 's|http://security.ubuntu.com/ubuntu|http://mirrors.edge.kernel.org/ubuntu|g' /etc/apt/sources.list
+              grep -n '^deb ' /etc/apt/sources.list || true
+              wait_dns mirrors.edge.kernel.org || true
+              if try_install; then
+                echo "apt ok via mirrors.edge.kernel.org"
+              else
+                echo "ERROR: apt failed on the default mirror, archive.ubuntu.com AND mirrors.edge.kernel.org"
+                echo "This is a runner network/DNS failure, not a repo problem - re-run the job."
+                exit 1
+              fi
+            fi
+          fi
           sudo ln -sf /usr/bin/python3 /usr/bin/python
+          bc --version | head -1
+          python3 -V
 
       - name: Install repo tool
         run: |

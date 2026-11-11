@@ -141,6 +141,29 @@ load（1.0）都正常。这是 GitHub runner 的 live-log 上传管道 wedged �
 刷新、`ninja progress` 有没有往上涨；不要依赖归档日志 API。若自托管 runner 或
 本地编译，则完全不受此问题影响。
 
+#### CI 已知问题：runner DNS 故障导致第 5 步 apt 失败
+
+GitHub 的 `ubuntu-22.04` 镜像把所有 apt 源指向
+`mirror+file:/etc/apt/apt-mirrors.txt`，实际解析到 `azure.archive.ubuntu.com`。
+这台机器的 DNS 偶尔会整体不可用，表现为：
+
+```
+E: Failed to fetch ... Temporary failure resolving 'azure.archive.ubuntu.com'
+ 5  Install build dependencies   failure
+```
+
+**这跟本仓库的代码无关**——run 18（成功）与 run 19（失败两次）的第 5 步内容逐字节相同，
+连 runner 镜像版本都是同一个 `ubuntu22/20261101.347`。但一轮构建要 1–2 小时，
+不该被一次 DNS 查询毁掉，所以第 5 步现在做了三层兜底：
+
+1. 默认镜像，`Acquire::Retries=3` + 30 s 超时 + 强制 IPv4 重试；
+2. 失败则把 `mirror+file:...` 直接替换成 `http://archive.ubuntu.com/ubuntu`，并
+   先 `getent hosts` 轮询等待 DNS 恢复（最多 60 s）；
+3. 再失败则换成 `http://mirrors.edge.kernel.org/ubuntu`。
+
+三层都失败才退出，并明确打印「这是 runner 网络问题，重跑即可」，不再让人误以为是
+代码挂了。
+
 ### 方式二：本地 WSL2 编译
 
 本地没有 runner 的日志管道限制，也不会被 150 分钟超时打断。建议 WSL2 分配
