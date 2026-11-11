@@ -130,7 +130,7 @@ jobs:
         # assembled from gui/theme/portrait_hdpi at build time, so also seed
         # the same files into the source - this keeps the overlay reproducible
         # on every cloud build regardless of copy order.
-        # This step ALSO applies four patches to the freshly synced upstream
+        # This step ALSO applies five patches to the freshly synced upstream
         # sources (never committed to this repo):
         #   - indeterminate progress spinner 30fps -> 60fps
         #   - default "Recovery performance mode" Balanced -> High performance
@@ -138,6 +138,9 @@ jobs:
         #     mapping, RichTap waveform ladder and a runtime gain file
         #   - gui/{objects.hpp,gui.cpp,animation.cpp}: remove the real 30 fps
         #     redraw ceiling and the 500 ms input catch-up window
+        #   - minuitwrp/graphics_drm.cpp: pick the highest vrefresh timing at
+        #     the native resolution instead of the kernel-preferred 60 Hz one,
+        #     with a black-screen fallback and a /tmp/fox_drm.log breadcrumb
         # Every patch has match-count / post-condition assertions, so a
         # silently ineffective patch fails the build instead of wasting 2h.
         run: |
@@ -231,14 +234,49 @@ jobs:
             exit 1
           fi
           python3 "$GITHUB_WORKSPACE/scripts/patch_gui_framerate.py" "$GUI"
-          grep -q '#define TW_FRAMERATE 120' "$GUI/objects.hpp"
+          grep -q '#define TW_FRAMERATE 144' "$GUI/objects.hpp"
           grep -q '(got_event ? 2 : 1)' "$GUI/gui.cpp"
           grep -q 'mUpdateCount >= TW_FRAMERATE / mFPS' "$GUI/animation.cpp"
           if grep -q '#define TW_FRAMERATE 30' "$GUI/objects.hpp" || grep -q '500000000' "$GUI/gui.cpp"; then
             echo "ERROR: 30 fps default / 500 ms input window survived the framerate patch"
             exit 1
           fi
-          echo "framerate patch (v4, 30 -> 120 fps ceiling) OK: $GUI"
+          echo "framerate patch (v5, 30 -> 144 fps ceiling) OK: $GUI"
+
+          echo "=== Patch upstream minuitwrp DRM: 144 Hz panel timing ==="
+          # find_main_monitor() only ever honoured DRM_MODE_TYPE_PREFERRED, and
+          # the kernel marks the 60 Hz timing preferred even though the
+          # connector advertises 1240x2772x{60,90,120,144}cmd. drm_flip() is a
+          # blocking full-frame memcpy + atomic commit, so every frame paid one
+          # 16.7 ms vblank. 144 Hz cuts that tax to 6.9 ms/frame.
+          DRM="$(find "$ROOT" -path '*/minuitwrp/graphics_drm.cpp' -print -quit)"
+          if [ -z "$DRM" ] || [ ! -f "$DRM" ]; then
+            echo "ERROR: minuitwrp/graphics_drm.cpp not found under $ROOT"
+            exit 1
+          fi
+          # Say out loud which backend Android.mk compiles. If the DRM source
+          # is not the one linked in, the patch below is inert and the panel
+          # stays at 60 Hz - better to see that in the log than guess.
+          MINUITWRP_MK="$(dirname "$DRM")/Android.mk"
+          if [ -f "$MINUITWRP_MK" ]; then
+            echo "-- graphics backend selected by minuitwrp/Android.mk --"
+            grep -nE 'graphics_(drm|fbdev)\.cpp|USE_DRM|BOARD_USES_DRM_GRALLOC' "$MINUITWRP_MK" || true
+          fi
+          python3 "$GITHUB_WORKSPACE/scripts/patch_minuitwrp_drm_hz.py" "$(dirname "$DRM")"
+          # v1 post-conditions, mirroring the patcher's own token lists.
+          grep -q 'g_pref_mode_index' "$DRM"
+          grep -q 'g_selected_vrefresh' "$DRM"
+          grep -q 'if (m->vrefresh > main_monitor_connector->modes\[best\].vrefresh)' "$DRM"
+          grep -q 'current_blank_state != false' "$DRM"
+          grep -q 'drmModeDestroyPropertyBlob(drm_fd, crtc_res.mode_blob_id)' "$DRM"
+          grep -q '/tmp/fox_drm.log' "$DRM"
+          # The old "preferred only, break out" select must be dead: if the
+          # candidate scan is missing, the patch silently did nothing.
+          if ! grep -q 'const drmModeModeInfo \*m = &main_monitor_connector->modes\[modes\]' "$DRM"; then
+            echo "ERROR: vrefresh candidate scan missing; panel would stay at 60 Hz"
+            exit 1
+          fi
+          echo "drm refresh patch (v1, highest vrefresh at native resolution) OK: $DRM"
 
           echo "=== Whiteink overlay verification ==="
           ls -l "$SRC/sbin/maintainer.xml" "$SRC/twres/splash.xml" "$SRC/twres/images/Whiteink/"*.png
@@ -252,7 +290,7 @@ jobs:
           grep -q 'fox_perf' "$SRC/init.recovery.qcom.rc"
           echo "=== Whiteink hardware wiring verification ==="
           BC="$GITHUB_WORKSPACE/BoardConfig.mk"
-          grep -q '^TW_FRAMERATE := 120$' "$BC"
+          grep -q '^TW_FRAMERATE := 144$' "$BC"
           grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS := true$' "$BC"
           if grep -q '^TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF :=' "$BC"; then
             echo "ERROR: FIX_OFF re-enabled; per-tap std::thread would come back"

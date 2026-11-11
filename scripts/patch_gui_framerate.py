@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-patch_gui_framerate.py -- Whiteink framerate patch v4
+patch_gui_framerate.py -- Whiteink framerate patch v5
 
 Why this exists
 ---------------
@@ -24,13 +24,14 @@ catch-up window to **500 ms** (~2 redraws/sec while dragging). Setting
 
 What this patch does (on the freshly synced upstream sources)
 -------------------------------------------------------------
-  1. objects.hpp: force TW_FRAMERATE to 120 (removes the 30 fps ceiling).
-     The real rate is still bounded by CPU software rendering of a
-     1240x2772 RGBX_8888 framebuffer; 120 is a ceiling, not a promise.
+  1. objects.hpp: force TW_FRAMERATE to 144 (removes the 30 fps ceiling and
+     matches the panel mode the DRM patch selects). The real rate is still
+     bounded by CPU software rendering of a 1240x2772 RGBX_8888 framebuffer;
+     144 is a ceiling, not a promise.
   2. gui.cpp: replace the 500 ms ``got_event`` window with two UI frames.
   3. animation.cpp: ``>`` -> ``>=`` on the integer-division frame divider.
-     With 120/60 = 2 the spinner now advances every 2 frames (60 fps);
-     with the old ``>`` it advanced every 3 frames (40 fps).
+     With 144/60 = 2 the spinner advances every 2 frames (60 fps); with the
+     old ``>`` it advanced every 3 frames (40 fps).
 
 Exact-string replacements with match-count assertions, idempotent, and every
 failure aborts CI before the ~2 h build starts.
@@ -44,22 +45,23 @@ import argparse
 import sys
 from pathlib import Path
 
-MARKER = "Whiteink framerate patch v4"
+MARKER = "Whiteink framerate patch v5"
 
 OBJECTS_OLD = """#ifndef TW_FRAMERATE
 #define TW_FRAMERATE 30
 #endif
 """
-OBJECTS_NEW = """// Whiteink framerate patch v4: OrangeFox 12.1 Android.mk never forwards the
+OBJECTS_NEW = """// Whiteink framerate patch v5: OrangeFox 12.1 Android.mk never forwards the
 // BoardConfig TW_FRAMERATE variable into a -D flag, so this default (30) was
-// the REAL global redraw cadence. 120 removes that artificial ceiling; the
-// achievable rate stays bounded by CPU software rendering of the framebuffer.
+// the REAL global redraw cadence. 144 removes that artificial ceiling and
+// matches the 144 Hz panel mode selected by the DRM patch; the achievable
+// rate stays bounded by CPU software rendering of the framebuffer.
 #undef TW_FRAMERATE
-#define TW_FRAMERATE 120
+#define TW_FRAMERATE 144
 """
 
 LOOP_OLD = "\t\tlong timeout = got_event ? 500000000 : (1.0 / TW_FRAMERATE * 1000000000);"
-LOOP_NEW = """\t\t// Whiteink framerate patch v4: upstream used a 500 ms catch-up window
+LOOP_NEW = """\t\t// Whiteink framerate patch v5: upstream used a 500 ms catch-up window
 \t\t// whenever an input event was seen, collapsing drags to ~2 redraws/sec.
 \t\t// Cap it at two UI frames instead so drags still follow the finger.
 \t\tlong timeout = (1.0 / TW_FRAMERATE * 1000000000) * (got_event ? 2 : 1);"""
@@ -96,7 +98,7 @@ def write_raw(path, text):
 
 RULES = [
     ("objects.hpp", OBJECTS_OLD, OBJECTS_NEW,
-     ["#define TW_FRAMERATE 120", "#undef TW_FRAMERATE"]),
+     ["#define TW_FRAMERATE 144", "#undef TW_FRAMERATE"]),
     ("gui.cpp", LOOP_OLD, LOOP_NEW,
      ["(got_event ? 2 : 1)"]),
     ("animation.cpp", ANIM_OLD, ANIM_NEW,

@@ -125,13 +125,15 @@ TW_THEME := portrait_hdpi
 #     #endif
 # gui/gui.cpp::loopTimer() also used a 500 ms window whenever an input event
 # arrived, collapsing drags to ~2 redraws/sec. Both are now fixed at the
-# source level by scripts/patch_gui_framerate.py (30 -> 120, 500 ms -> 2
-# frames, animation divider '>' -> '>='). Keep this variable at 120 for
+# source level by scripts/patch_gui_framerate.py (30 -> 144, 500 ms -> 2
+# frames, animation divider '>' -> '>='). Keep this variable at 144 for
 # consistency and in case a future upstream starts forwarding it, but do NOT
 # rely on it alone.
 # This is the UI redraw/animation pacing ONLY, NOT the panel scanout refresh
-# rate (kernel DRM/panel driver, probed at runtime by sbin/fox_refresh.sh).
-TW_FRAMERATE := 120
+# rate. The panel side is handled by scripts/patch_minuitwrp_drm_hz.py, which
+# makes graphics_drm.cpp pick the highest vrefresh mode (144) instead of the
+# kernel-preferred 60 Hz one.
+TW_FRAMERATE := 144
 TW_CUSTOM_CPU_TEMP_PATH := "/sys/devices/virtual/thermal/thermal_zone39/temp"
 TW_BRIGHTNESS_PATH := "/sys/devices/platform/soc/ae00000.qcom,mdss_mdp/backlight/panel0-backlight/brightness"
 TW_MAX_BRIGHTNESS := 4095

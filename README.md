@@ -7,6 +7,13 @@
 > 运行时增益开关、159 个 RichTap 波形全部在镜像内；同时去掉了 `TW_FRAMERATE 30`
 > 这个真正的全局重绘天花板和拖动时的 500 ms 抓帧窗口。r12 / r13 / r15 请勿使用
 > （r15 未产出任何产物）。
+>
+> **r17（源码 patch v5）正在验证 144 Hz 面板时序**：r16 之前 recovery 一直跑在
+> **60 Hz** 上——不是没有 144 Hz 模式，而是 `graphics_drm.cpp::find_main_monitor()`
+> 只认内核标记 `DRM_MODE_TYPE_PREFERRED` 的那条时序，而它恰好是 60 Hz。见
+> [144 Hz：面板一直被迫跑 60 Hz](#144-hz面板一直被迫跑-60-hz)。
+> 线性马达的**力度**在本机已达硬件上限，r16 之后不再改动（见
+> [力度上限：为什么停在这里](#力度上限为什么停在这里)）。
 
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
 由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
@@ -16,6 +23,7 @@
 > 拿到原来 300 的力度，300 更强）、**波形播放前也 `setAmplitude()`**、以及运行时增益文件
 > `/tmp/fox_haptics_gain`（不用重编译就能调力度）；并用 `scripts/patch_gui_framerate.py`
 > 修掉真正的 30 fps 主循环天花板与 500 ms 输入窗口，见 [UI 流畅度](#ui-流畅度)。
+> r17 再把主循环节拍提到 **144** 并把面板时序拉到 **144 Hz**（两条独立的改动，可分别回退）。
 > 刷入前请先读 [刷入](#刷入) 与 [已知注意事项](#已知注意事项)。
 
 | 项目 | 信息 |
@@ -52,6 +60,7 @@
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
 | 最新成功构建 | Actions **run 16**（`42986555580`，head `4489b2d`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:03:36`，整个 run 约 **69 min**；`recovery.img`、zip 均已下载并 SHA256 校验，离线解包确认 v4 三档映射 + gain 开关 + 159 个 `/odm/etc` 波形、4 个 60 fps 转圈动画全部在镜像内 |
 | 上一轮失败 | **run 15**（`42985063405`，head `65d401e7`）在**第 9 步注入闸门 6 分钟内**失败：`patch_gui_framerate.py` 用了 Python 3.13 才有的 `Path.read_text(newline=)`，runner 是 3.10。已修（改用 `open()`，基线降到 3.8），并新增 `scripts/check_py_compat.py` 静态拦截——**第 10 步编译未启动，没有浪费 2 小时** |
+| 本轮改动（待验证） | **r17 / patch v5**：① 新增 `scripts/patch_minuitwrp_drm_hz.py`，让 `graphics_drm.cpp` 在原生分辨率下选 **144 Hz** 时序并在失败时回退到内核首选时序；② `TW_FRAMERATE` 主循环节拍 `120 → 144`（`BoardConfig.mk` 与 `gui/objects.hpp` 同步）。线性马达力度不再改动 |
 | 编译耗时波动 | 同样的 `-j1`、同样 28030 个 target：run 14 用 **122 min**，run 16 用 **64 min**。差异来自**换了一台 runner 虚拟机**（`1000000821` → `1000000823`），与提交内容无关，不是「越编越慢」 |
 | 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-*.zip` + 两个 `.md5` |
 
@@ -346,9 +355,81 @@ framebuffer，**按需重绘**——静止时一帧都不画，只有触摸跟�
 >    除法，节拍提高后动画会每 3 帧才走一帧。
 
 `scripts/patch_gui_framerate.py` 在每次云端 sync 后对这三处做精确替换（带匹配计数与
-后置断言，失效直接让 CI 失败）：`30 → 120` 的编译期节拍、`500 ms → 2 帧` 的输入窗口、
-`> → >=` 的动画除法。**120 是上限不是承诺**：实际帧率仍由 CPU 软渲染一帧的耗时决定，
+后置断言，失效直接让 CI 失败）：`30 → 144` 的编译期节拍、`500 ms → 2 帧` 的输入窗口、
+`> → >=` 的动画除法。**144 是上限不是承诺**：实际帧率仍由 CPU 软渲染一帧的耗时决定，
 但 30 fps 的人为天花板被去掉了，拖动不再被 500 ms 窗口卡住。
+
+### 144 Hz：面板一直被迫跑 60 Hz
+
+即使把主循环节拍提到 144，**画面依然只会在垂直同步间隔上翻页**。原因不在 GUI，在
+`minuitwrp/graphics_drm.cpp`：
+
+```c
+static GRSurface* drm_flip(minui_backend* backend) {
+    memcpy(drm_surfaces[current_buffer]->base.data,   // 1240x2772x4 = 13.75 MB
+           draw_buf->data, draw_buf->height * draw_buf->row_bytes);
+    update_plane_fb();                                // 阻塞式 atomic commit
+    ...
+}
+```
+
+`drm_flip()` 是**同步**的：整屏 `memcpy` 之后提交一次
+`drmModeAtomicCommit(..., DRM_MODE_ATOMIC_ALLOW_MODESET, NULL)`，**没有**
+`DRM_MODE_ATOMIC_NONBLOCK`，所以每次提交都要等一个垂直同步间隔。也就是说每一帧都被
+额外抽了一次税：
+
+| 面板时序 | 每帧等待 | 理论帧率上限 |
+| --- | --- | --- |
+| 60 Hz | +16.7 ms | 60 fps（实测就是「只有 60 帧的样子」） |
+| 144 Hz | +6.9 ms | 144 fps |
+
+而 144 Hz 一直没生效，是因为选时序的这段代码：
+
+```c
+*mode_index = 0;
+for (int modes = 0; modes < main_monitor_connector->count_modes; modes++) {
+    if (main_monitor_connector->modes[modes].type & DRM_MODE_TYPE_PREFERRED) {
+        *mode_index = modes;
+        break;
+    }
+}
+```
+
+它**只认内核标记 `DRM_MODE_TYPE_PREFERRED` 的那一条**，而本机 kernel 标记为 preferred
+的恰好是 60 Hz。实机 `modes` 列表里明明白白有 4 条：
+
+```
+1240x2772x60cmd / 1240x2772x90cmd / 1240x2772x120cmd / 1240x2772x144cmd
+```
+
+> [!NOTE]
+> 这条路**没有 sysfs 捷径**。实机确认本机：
+> - `/sys/class/graphics/fb0` 目录是**空的**，没有 `mode` / `refresh_rate` 之类的节点；
+> - `/sys/kernel/oplus_display` 有 48 个节点，但**没有任何一个是帧率控制**；
+> - `sbin/fox_refresh.sh` 在 r16 里的日志就是 `no usable 144 Hz node`。
+>
+> 所以必须改源码，不能靠写节点。
+
+`scripts/patch_minuitwrp_drm_hz.py` 做三处精确插入：
+
+1. 文件作用域：记录内核首选下标 `g_pref_mode_index` 和实际选中的刷新率 `g_selected_vrefresh`；
+2. `find_main_monitor()`：保留首选下标作回退，再在**同分辨率**的模式里挑 `vrefresh` 最大的一条；
+3. `drm_init()`：**黑屏保险**。`drm_blank()` 失败时会把 `current_blank_state` 留在初始的
+   `true`，据此判断「144 Hz 时序被拒」，销毁并重建 mode blob、换回内核首选时序再提交一次，
+   保证最坏情况是**这一次开机退回 60 Hz**，而不是黑屏。
+
+它还会往 `/tmp/fox_drm.log` 追加一行，所以即使没有画面也能确认实际生效的刷新率：
+
+```powershell
+adb shell cat /tmp/fox_drm.log
+# vrefresh=144 modeset_ok=1
+```
+
+> [!IMPORTANT]
+> 两处改动是**互相独立**的，可以分别回退：面板时序在 `patch_minuitwrp_drm_hz.py`，
+> 主循环节拍在 `TW_FRAMERATE`。如果 r17 出现「画面更顺但手感更飘」或其它异常，先回退
+> `TW_FRAMERATE := 144` 观察，再考虑整个 DRM 补丁。
+
 
 > [!IMPORTANT]
 > **补丁脚本只能用 Python 3.8 就有的 API。** run 15 就是在第 9 步 6 分钟内挂掉的：
@@ -365,11 +446,14 @@ framebuffer，**按需重绘**——静止时一帧都不画，只有触摸跟�
 | 开机锁定 `performance` governor | `recovery/root/init.recovery.qcom.rc` 的 `fox_perf` 服务，`on boot` 与解密完成后各触发一次 | 避免默认「均衡」把 UI 线程压到小核低频 |
 | 默认「Recovery 性能模式」改为**高性能** | 云端编译时 patch 上游 `pages/settings.xml` 的两处兜底默认值 | 让 OrangeFox 自身的启动逻辑也用高性能 |
 | 转圈动画 30 → 60 fps | 云端编译时 patch 上游 `pages/{files,main,templates/base}.xml` 共 4 处 | 只影响进度条不确定动画 |
-| **去掉 30 fps 全局天花板 / 500 ms 输入窗口** | `scripts/patch_gui_framerate.py` patch `gui/objects.hpp`、`gui/gui.cpp`、`gui/animation.cpp` | 主循环节拍 30 → 120，拖动按 UI 节拍重绘 |
+| **去掉 30 fps 全局天花板 / 500 ms 输入窗口** | `scripts/patch_gui_framerate.py` patch `gui/objects.hpp`、`gui/gui.cpp`、`gui/animation.cpp` | 主循环节拍 30 → 144，拖动按 UI 节拍重绘 |
+| **面板时序 60 → 144 Hz** | `scripts/patch_minuitwrp_drm_hz.py` patch `minuitwrp/graphics_drm.cpp` | 每帧少等 9.8 ms 垂直同步，`drm_flip()` 的阻塞提交不再把帧率钉在 60 |
 
 > [!NOTE]
 > 主题里那 4 处 `fps="30"` 的条件都是 `ui_progress`，只控制进度条转圈；**全局**节拍是
 > `TW_FRAMERATE`，而且必须由 patch 改源码默认值才有效，光改 `BoardConfig.mk` 没用。
+> 而**面板**刷新率既不是 `TW_FRAMERATE` 也不是任何 sysfs 节点，只能在
+> `graphics_drm.cpp` 里改选模式的逻辑。
 
 首次进入后建议再确认两处（一次设置即可持久生效）：
 
@@ -547,6 +631,35 @@ adb shell cat /tmp/fox_haptics.log           # 看 level / gain / played_ms
 
 增益文件每 2 秒才读一次，不会落在输入热路径上。
 
+### 力度上限：为什么停在这里
+
+r16 之后**不再继续加力度**，因为三条能加力度的路都在实机上试完了，全部撞到同一堵墙。
+实测基线（`/tmp/fox_haptics.log` + `qcom-haptics` 节点）：
+
+```
+mode=1 level=3 used=3 gain=0 amp=1.00 drive_ms=60 timeout_ms=300 played_ms=81
+vibrator_type=809   lra_frequency_hz=174   t_lra_us=5882
+vmax=1280  fifo_vmax=9100  cl_vmax=9100
+```
+
+`played_ms=81 > 0` 说明 RichTap 波形**确实播出来了**，而且是最大档、满幅度——「弱」不是
+没播，是这条波形在本机 LRA 上的物理输出就这么多。三条路的结果：
+
+| 试的杠杆 | 做法 | 结果 | 结论 |
+| --- | --- | --- | --- |
+| **幅度** | `fifo_vmax` 9100 → 11375（+25%） | 「更强了，但变成转子马达的震感」 | LRA 过冲进入削顶区，谐波把线性手感变成嗡嗡的 ERM 手感 |
+| **时长** | 最高档加一次额外脉冲（双脉冲） | 「正常了，但好像变弱了一点…反正没有强」 | 能量摊到两次启动/刹车，单次冲击反而更小 |
+| **绕过波形** | 直接 `IVibrator::on(duration)` 驱动 | 「又是转子马达那种手感」 | 去掉 RichTap 的刹车曲线就是方波激励，必然像转子 |
+
+> [!IMPORTANT]
+> **`fifo_vmax=9100` 已经是这条 LRA 的线性区上限。** 再往上加不是「更响」，而是让振子
+> 撞到机械限位——能量从基频（174 Hz）漏到谐波，听感/手感就从「哒」变成「嗡」。这也解释了
+> 为什么 `setAmplitude()` 对 `perform()` 路径没有效果：RichTap 波形自带包络，HAL 不接受
+> 外部再缩放。
+>
+> 所以 v4 的三档映射 + 运行时增益就是这套硬件的实用上限。若仍想更强，只能换硬件
+> （更大尺寸的 LRA）或换厂商波形（`/odm/etc/vibrator/809/` 下的 `effect_*.bin`）。
+
 > [!IMPORTANT]
 > **144 Hz 不是靠 `BoardConfig.mk` 声明出来的。** recovery 没有 SurfaceFlinger /
 > DisplayManager / SettingsProvider，`settings put system peak_refresh_rate 144`
@@ -554,6 +667,8 @@ adb shell cat /tmp/fox_haptics.log           # 看 level / gain / played_ms
 > **UI 主循环重绘节拍**（`gui/gui.cpp::loopTimer()`）与动画抽帧
 > （`gui/animation.cpp` 的 `TW_FRAMERATE / mFPS`），和面板扫描率是两套东西。
 > 它同时也确实是一个全局帧率上限——r14 复盘已证实，见 [UI 流畅度](#ui-流畅度)。
+> 面板那一侧由 `scripts/patch_minuitwrp_drm_hz.py` 改 `graphics_drm.cpp` 的选模式逻辑
+> 实现，见 [144 Hz：面板一直被迫跑 60 Hz](#144-hz面板一直被迫跑-60-hz)。
 
 > [!NOTE]
 > **「144 Hz 看不出来」和「滑动卡」都不等于面板没跑在 144 Hz。** recovery 没有
@@ -563,32 +678,44 @@ adb shell cat /tmp/fox_haptics.log           # 看 level / gain / played_ms
 > （见上），配合已固化的 `performance` governor；全屏软渲染本身仍是上限。想更跟手，
 > 进设置关掉手势导航通常最有效。
 
-构建把 `TW_FRAMERATE` 设为 `60`：TWRP 在 `gui/objects.hpp` 里默认写死 `30`，而上一轮
-已把主题 4 处转圈动画 patch 成 `fps="60"`，`30/60 == 0`（整数除法）两边是错配的，
-同步到 60 才自洽。**刻意不设 144**：1240×2772 的 CPU 软渲染一帧约 13.7 MB，UI 主循环
-根本达不到 144 Hz，把节拍写成 144 只会让动画抽帧变稀、反而更卡。
+构建把 `TW_FRAMERATE` 设为 `144`，与面板时序对齐：TWRP 在 `gui/objects.hpp` 里默认写死
+`30`，主题 4 处转圈动画是 `fps="60"`，`144/60 == 2`（整数除法）两边自洽。
+
+> [!NOTE]
+> r13 时这里写过「刻意不设 144：软渲染达不到 144 Hz，节拍写高只会让动画抽帧变稀、反而更卡」。
+> 那句话把两件事混在一起了：
+>
+> - **动画节拍**由 `TW_FRAMERATE / mFPS` 的整数除决定，`144/60 = 2` 与 `120/60 = 2`
+>   完全等价，**不会抽帧**；
+> - **帧率上限**从来不由节拍决定，而是由 `drm_flip()` 的阻塞提交在等垂直同步决定。
+>
+> 面板跑 60 Hz 时每一帧都必须等 16.7 ms，这才是「整个页面只有 60 帧的样子」的直接原因。
+> 所以正确做法是**同时**把面板拉到 144 Hz、并把节拍对齐到 144（r17 / patch v5）。
 
 `fox_refresh.sh` 是 oneshot 服务，在 `on boot`、模块加载完成、解密完成后各尝试一次，
-策略是「宁可不生效，也不能让 recovery 起不来」：
+策略是「宁可不生效，也不能让 recovery 起不来」：先找内核是否明确广告 144 Hz 模式，只在
+可写节点上 `echo 144` 并回读校验，任何环节失败都静默跳过（`exit 0`），日志在
+`/tmp/fox_refresh.log`。
 
-1. 先找内核是否**明确广告** 144 Hz 模式（`fb0/modes`、`msm_fb_panel_info`、DRM `modes`）；
-   没有广告时，只有当节点当前值 ≥ 60、能确认它确实是刷新率控制才继续。
-2. 只在可写节点上 `echo 144`，并**回读校验**；读回不是 144 就恢复原值。
-3. 任何环节失败都静默跳过并以 `exit 0` 结束，不阻塞启动。日志在 `/tmp/fox_refresh.log`。
+> [!IMPORTANT]
+> 实机已确认**这台机器上它永远是空转**：`/sys/class/graphics/fb0` 目录为空，
+> `/sys/kernel/oplus_display` 的 48 个节点里没有帧率控制，r16 的日志就是
+> `no usable 144 Hz node`。它保留只是作为「万一某个固件版本有节点」的兜底，
+> **真正生效的是 `scripts/patch_minuitwrp_drm_hz.py` 对 DRM 选模式逻辑的修改**。
 
 > [!WARNING]
-> 强制改变面板扫描率在个别固件上可能引发花屏 / 黑屏 / 额外耗电。脚本已做回读与
-> 回滚，但若真出现异常：进 fastboot 重刷上一版 `recovery.img` 即可恢复；想彻底关闭，
-> 把 `fox_refresh.sh` 里的 `ENABLE=1` 改成 `0`，或删掉 `init.recovery.qcom.rc` 里的
-> 三处 `start fox_refresh` 后重编。
+> 改 DRM 时序在个别固件上可能引发花屏 / 黑屏。补丁已内置黑屏保险（提交失败会在同一次开机
+> 内退回内核首选时序），但若真出现异常：进 fastboot 重刷上一版 `recovery.img` 即可恢复。
+> 想彻底关闭面板改动，把 `scripts/patch_minuitwrp_drm_hz.py` 从 workflow 第 9 步移除即可，
+> 主循环节拍不受影响。
 
 回家接上 adb 后可用下面几条确认是否真的生效（**不需要**为了改代码而先跑）：
 
 ```powershell
+adb shell "cat /tmp/fox_drm.log"          # vrefresh=144 modeset_ok=1 才算真的切上去了
+adb shell "cat /tmp/fox_refresh.log"
 adb shell "service list | grep -i vibra"
 adb shell "lsmod | grep -i aw8697; ls -l /dev/awinic_haptic"
-adb shell "cat /tmp/fox_refresh.log"
-adb shell "cat /sys/class/graphics/fb0/dynamic_fps 2>/dev/null"
 ```
 
 ---
