@@ -1,0 +1,8 @@
+# fox-boost updater-script
+# ---------------------------------------------------------------------------
+# 真正的逻辑在 META-INF/com/google/android/update-binary 里（shell 脚本）。
+# TWRP / OrangeFox 读到 update-binary 以 "#!" 开头时，会直接执行它而忽略这个
+# 文件的内容；这里保留一个合法的最小占位，避免个别版本在缺少它时拒绝刷入。
+#
+# 不要在这里加 edify 命令：一旦 updater-script 被当作入口，update-binary
+# 就不会执行，整个诊断会变成一次空刷。

@@ -27,20 +27,22 @@ import sys
 import zipfile
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parent / "diag_zip"
+SRC_DEFAULT = Path(__file__).resolve().parent / "diag_zip"
+SRC = SRC_DEFAULT
 EXEC_FILES = {"META-INF/com/google/android/update-binary"}
 
 
-def build(out_path):
+def build(out_path, src=None):
+    src = Path(src) if src else SRC_DEFAULT
     entries = []
-    for p in sorted(SRC.rglob("*")):
+    for p in sorted(src.rglob("*")):
         if p.is_file():
             entries.append(p)
     if not entries:
-        raise SystemExit("ERROR: %s 是空的" % SRC)
+        raise SystemExit("ERROR: %s 是空的" % src)
 
     need = "META-INF/com/google/android/update-binary"
-    names = [p.relative_to(SRC).as_posix() for p in entries]
+    names = [p.relative_to(src).as_posix() for p in entries]
     if need not in names:
         raise SystemExit("ERROR: 缺少 %s" % need)
 
@@ -51,7 +53,7 @@ def build(out_path):
 
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:
         for p in entries:
-            name = p.relative_to(SRC).as_posix()
+            name = p.relative_to(src).as_posix()
             data = p.read_bytes()
             # 强制 LF：任何 CRLF 都会让 recovery 的 sh 解释失败
             if name.startswith("META-INF/com/google/android/") or name.endswith(".sh"):
@@ -90,9 +92,10 @@ def build(out_path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(SRC.parent.parent / "dist" / "fox-diag.zip"))
+    ap.add_argument("--out", default=str(SRC_DEFAULT.parent.parent / "dist" / "fox-diag.zip"))
+    ap.add_argument("--src", default=None, help="zip 内容目录，默认 scripts/diag_zip")
     args = ap.parse_args()
-    return build(args.out)
+    return build(args.out, args.src)
 
 
 if __name__ == "__main__":

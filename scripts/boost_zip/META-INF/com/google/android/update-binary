@@ -1,0 +1,97 @@
+#!/sbin/sh
+# Whiteink fox-boost —— 第二包：读 qcom-haptics 全部参数 + 做一次可复原的振幅提升
+#
+# 上一包查明：这台机器没有 /sys/class/leds/vibrator，真正的马达 class 是
+# /sys/class/qcom-haptics（有 vmax / fifo_vmax / cl_vmax）。
+# 本包做两件事：
+#   1) 把那组参数的当前值全部打印出来（我据此定 v5 的具体数值）
+#   2) 把 vmax / fifo_vmax 各提升 25%，留在系统里让你退出后点按钮感受
+#      重启即自动恢复（sysfs 不持久），原始值也备份在 /tmp 与 /sdcard
+#
+# 不复原也能恢复：重启设备。
+
+OUTFD="$2"
+LOG=/tmp/fox_boost.txt
+: > "$LOG" 2>/dev/null
+Q=/sys/class/qcom-haptics
+
+ui() {
+    if [ -n "$OUTFD" ]; then
+        echo "ui_print $1" >&"$OUTFD" 2>/dev/null
+        echo "ui_print" >&"$OUTFD" 2>/dev/null
+    fi
+    echo "$1" >> "$LOG" 2>/dev/null
+}
+sec() { ui " "; ui "======== $1 ========"; }
+
+sec "1/4 qcom-haptics 全部参数"
+if [ -d "$Q" ]; then
+    ui "  节点: $(ls "$Q" 2>/dev/null | tr '\n' ' ')"
+    for f in "$Q"/*; do
+        [ -f "$f" ] || continue
+        v=$(cat "$f" 2>/dev/null | head -c 40 | tr -d '\n')
+        ui "  $(basename "$f") = $v"
+    done
+else
+    ui "  /sys/class/qcom-haptics 不存在！"
+fi
+
+sec "2/4 oplus_display 全部节点"
+if [ -d /sys/kernel/oplus_display ]; then
+    ui "  节点数: $(ls /sys/kernel/oplus_display 2>/dev/null | wc -l)"
+    for f in /sys/kernel/oplus_display/*; do
+        [ -f "$f" ] || continue
+        case "$f" in
+            *fps*|*FPS*|*refresh*|*frame*|*timing*|*mode*)
+                ui "  [$(basename "$f")] $(cat "$f" 2>/dev/null | head -c 50 | tr -d '\n')" ;;
+        esac
+    done
+else
+    ui "  /sys/kernel/oplus_display 不存在"
+fi
+
+sec "3/4 DRM 当前状态"
+ui "  modes:  $(cat /sys/class/drm/card0-DSI-1/modes 2>/dev/null | tr '\n' ' ')"
+ui "  status: $(cat /sys/class/drm/card0-DSI-1/status 2>/dev/null)"
+ui "  enabled:$(cat /sys/class/drm/card0-DSI-1/enabled 2>/dev/null)"
+ui "  dpms:   $(cat /sys/class/drm/card0-DSI-1/dpms 2>/dev/null)"
+ui "  最近点击: $(tail -1 /tmp/fox_haptics.log 2>/dev/null)"
+
+sec "4/4 振幅提升 25%（重启自动恢复）"
+BOOSTED=0
+for name in vmax fifo_vmax; do
+    f="$Q/$name"
+    [ -w "$f" ] || { ui "  $name: 不存在或不可写，跳过"; continue; }
+    cur=$(cat "$f" 2>/dev/null | tr -d ' \t\r\n')
+    case "$cur" in
+        ''|*[!0-9]*) ui "  $name=$cur 非纯数字，跳过"; continue ;;
+    esac
+    if [ "$cur" -le 0 ]; then
+        ui "  $name=$cur <=0，跳过（避免写出无意义值）"; continue
+    fi
+    new=$(( cur * 125 / 100 ))
+    echo "$cur" > "/tmp/fox_$name.orig" 2>/dev/null
+    echo "$new" > "$f" 2>/dev/null
+    got=$(cat "$f" 2>/dev/null | tr -d ' \t\r\n')
+    ui "  $name: $cur -> 写 $new -> 回读 $got"
+    [ "$got" = "$new" ] && BOOSTED=1
+done
+
+ui " "
+if [ "$BOOSTED" -eq 1 ]; then
+    ui "  >>> 现在返回主菜单，点几个按钮感受震感"
+    ui "  >>> 比刚才更强 / 差不多 / 更弱，告诉我哪一项"
+    ui "  >>> 重启设备即恢复原值，不会残留"
+else
+    ui "  >>> 参数没能写入，震感不会变化（这本身就是结论）"
+fi
+
+SAVED=""
+for d in /sdcard /data/media/0 /tmp; do
+    if [ -d "$d" ]; then
+        cp -f "$LOG" "$d/fox_boost.txt" 2>/dev/null && SAVED="$d/fox_boost.txt" && break
+    fi
+done
+ui " "
+ui "结果: ${SAVED:-/tmp/fox_boost.txt}"
+ui "完成"
