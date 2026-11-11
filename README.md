@@ -1,23 +1,21 @@
 # OrangeFox Recovery for realme GT Neo5 / GT3 (RMXTARO · senna)
 
-**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r14`
+**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r16`
 
 > [!IMPORTANT]
-> **`ofox-RMXTARO-r14` 已实测：X 轴线性马达的 RichTap 波形真的播出来了。**
-> 当前正在构建的是 v4 微调版（更陡的力度曲线 + 去掉 30 fps 全局上限），见下方 NOTE。
-> 在 v4 出包前，r14 就是可刷的最新稳定版；r12 / r13 请勿使用。
+> **`ofox-RMXTARO-r16` 已出包并通过离线解包验证**：线性马达 v4 三档力度映射、
+> 运行时增益开关、159 个 RichTap 波形全部在镜像内；同时去掉了 `TW_FRAMERATE 30`
+> 这个真正的全局重绘天花板和拖动时的 500 ms 抓帧窗口。r12 / r13 / r15 请勿使用
+> （r15 未产出任何产物）。
 
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
 由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
 
 > [!NOTE]
-> r14（patch v3）把振动滑块的 `0–300` 当**强度意图**而非毫秒时长，按
-> `HEAVY_CLICK + STRONG → CLICK + MEDIUM → CLICK + LIGHT` 播放 RichTap 波形，并把
-> 159 个 `effect_*.bin` 补进 ramdisk 的 `/odm/etc/vibrator/`，让 `perform()` 找得到波形。
-> v4 针对实测反馈再做三件事：**三档力度**（阈值 50 / 150，让 50、100 拿到原来 300 的
-> 力度，300 更强）、**波形播放前也 `setAmplitude()`**、以及运行时增益文件
-> `/tmp/fox_haptics_gain`（不用重编译就能调力度）；同时修掉真正的 30 fps 主循环天花板
-> 与 500 ms 输入窗口，见 [UI 流畅度](#ui-流畅度)。
+> r16（patch v4）在当前 v3 基础上做三件事：**三档力度**（阈值 50 / 150，让 50、100
+> 拿到原来 300 的力度，300 更强）、**波形播放前也 `setAmplitude()`**、以及运行时增益文件
+> `/tmp/fox_haptics_gain`（不用重编译就能调力度）；并用 `scripts/patch_gui_framerate.py`
+> 修掉真正的 30 fps 主循环天花板与 500 ms 输入窗口，见 [UI 流畅度](#ui-流畅度)。
 > 刷入前请先读 [刷入](#刷入) 与 [已知注意事项](#已知注意事项)。
 
 | 项目 | 信息 |
@@ -52,8 +50,9 @@
 | 界面 | Material You Expressive、SVG 图标引擎、Fox White / Fox Dark 双主题、Inter 字体、手势导航 |
 | 默认语言 | **简体中文**（`TW_DEFAULT_LANGUAGE := zh_CN`，可在 设置 → 语言 切换） |
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
-| 最新成功构建 | Actions **run 14**（`42964912250`，head `d743ef0`）成功，15 步全绿，`mka_rc=0`，build 步骤 `02:02:06`，整个 run 约 **2h09m**；产物已离线解包验证，v3 补丁与 159 个 `/odm/etc` 波形全部在镜像内 |
+| 最新成功构建 | Actions **run 16**（`42986555580`，head `4489b2d`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:03:36`，整个 run 约 **69 min**；`recovery.img`、zip 均已下载并 SHA256 校验，离线解包确认 v4 三档映射 + gain 开关 + 159 个 `/odm/etc` 波形、4 个 60 fps 转圈动画全部在镜像内 |
 | 上一轮失败 | **run 15**（`42985063405`，head `65d401e7`）在**第 9 步注入闸门 6 分钟内**失败：`patch_gui_framerate.py` 用了 Python 3.13 才有的 `Path.read_text(newline=)`，runner 是 3.10。已修（改用 `open()`，基线降到 3.8），并新增 `scripts/check_py_compat.py` 静态拦截——**第 10 步编译未启动，没有浪费 2 小时** |
+| 编译耗时波动 | 同样的 `-j1`、同样 28030 个 target：run 14 用 **122 min**，run 16 用 **64 min**。差异来自**换了一台 runner 虚拟机**（`1000000821` → `1000000823`），与提交内容无关，不是「越编越慢」 |
 | 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-*.zip` + 两个 `.md5` |
 
 - `fox_12.1` manifest 拉取的 `bootable/recovery` 已是 R12.0 新 UI，**无需再迁移分支**；
@@ -243,6 +242,14 @@ fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
 /twres/images/Whiteink/*.png      # 8 张：banner / 3 张二维码 / 4 种头像尺寸
 /twres/languages/zh_CN.xml
 ```
+
+`ofox-RMXTARO-r16` 的产物指纹（已本地下载并校验，zip 内的 `recovery.img` 与单独下载的
+`recovery.img` 字节一致）：
+
+| 文件 | 大小 | SHA256 |
+| --- | --- | --- |
+| `recovery.img` | 104857600 | `cdee0343364f2e6469747f011d1b3665c6cd81d4a02daa3f86a009b11e6213e7` |
+| `OrangeFox-R12.0-Unofficial-RMXTARO.zip` | 73776887 | `ec70e2b6a3c01a4af61fc51c9af1704c562e6ed2e5fa43fedc2759a620b304ef` |
 
 > [!WARNING]
 > 不要手工解包再重打包 `recovery.img` 拿去刷，容易破坏签名与 AVB 结构；
@@ -614,11 +621,12 @@ adb shell "cat /sys/class/graphics/fb0/dynamic_fps 2>/dev/null"
 | 编译卡在 41–42% 长时间无输出 | 先看实时日志里的 `HEARTBEAT` 是否还在跳。若心跳也停了，属于 [CI 已知问题](#ci-已知问题实时日志管道冻结)，取消该 run 后用最新 workflow 重跑，或改用本地 WSL2 编译。 |
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
-| 界面操作起来卡、整个页面只有 60 帧或 30 帧 | **r14 已找到真因**：`gui/objects.hpp` 默认 `TW_FRAMERATE 30`（`BoardConfig.mk` 那行一直是空操作），且 `gui.cpp` 一读到输入就把重绘窗口拉到 500 ms。v4 用 `scripts/patch_gui_framerate.py` 改成 120 节拍 / 2 帧窗口，详见 [UI 流畅度](#ui-流畅度)。另外关掉手势导航仍然最立竿见影。 |
-| 刷了 r12 之后振动很弱，把设置拉到 300 也没变化 | r12（patch v1）把 `timeout_ms` 整个丢了：波形失败时固定走 20 ms `on()`。设置里的 0–300 是**毫秒时长**，不是力度。修复版把当强度意图处理，见 [硬件适配](#硬件适配)。 |
-| 线性马达摸起来还是转子那种「嗡嗡」感 | 恒定振幅的 `on(ms)` 或找不到波形的短震都会是这种感觉。根因之一是 `vibrator_effect.json` 用绝对路径 `/odm/etc/vibrator/...`，而 ramdisk 里原来只有 `vendor/odm/etc/...`；v3 已把 159 个波形补进 `/odm/etc/`。见 [硬件适配](#硬件适配)。 |
-| 想知道这次点击到底走了哪条振动路径 | v3 起 `adb shell cat /tmp/fox_haptics.log`：`mode=1` 波形（含 `level` / `gain` / `played_ms`） / `mode=2` `setAmplitude` + 短 `on()` / `mode=3` sysfs 兜底；`touch /tmp/fox_haptics_force_on` 可临时强制走 `mode=2`。 |
-| r14 已经不转子了，但拉到 300 还是偏小 | v3 只有 2 档，且波形路径没设振幅。v4 改三档（50 / 150 阈值）+ 波形前 `setAmplitude()`；也可以**不重编译**先用 `adb shell "echo 1 > /tmp/fox_haptics_gain"` 试强弱，见 [硬件适配](#硬件适配)。 |
+| 界面操作起来卡、整个页面只有 60 帧或 30 帧 | **r16 已修**。真因不是主题里那几个 `fps="30"`，而是 `gui/objects.hpp` 默认 `TW_FRAMERATE 30`（`BoardConfig.mk` 那行一直是空操作），加上 `gui.cpp` 一读到输入就把重绘窗口拉到 500 ms。`scripts/patch_gui_framerate.py` 改成 120 节拍 / 2 帧窗口。若在 r14 及更早版本上遇到，就是这个原因；另外关掉手势导航仍然最立竿见影。 |
+| 刷了 r12 之后振动很弱，把设置拉到 300 也没变化 | r12（patch v1）把 `timeout_ms` 整个丢了：波形失败时固定走 20 ms `on()`。设置里的 0–300 是**毫秒时长**，不是力度。r14 起按强度意图处理，见 [硬件适配](#硬件适配)。 |
+| 线性马达摸起来还是转子那种「嗡嗡」感 | 恒定振幅的 `on(ms)` 或找不到波形的短震都会是这种感觉。根因之一是 `vibrator_effect.json` 用绝对路径 `/odm/etc/vibrator/...`，而 ramdisk 里原来只有 `vendor/odm/etc/...`；r14 起已把 159 个波形补进 `/odm/etc/`。见 [硬件适配](#硬件适配)。 |
+| 想知道这次点击到底走了哪条振动路径 | r14 起 `adb shell cat /tmp/fox_haptics.log`：`mode=1` 波形（含 `level` / `gain` / `played_ms`） / `mode=2` `setAmplitude` + 短 `on()` / `mode=3` sysfs 兜底；`touch /tmp/fox_haptics_force_on` 可临时强制走 `mode=2`。 |
+| 刷了 r16 觉得某档力度还不对 | 先别重编译：`adb shell "echo 1 > /tmp/fox_haptics_gain"` 试更强，或 `echo 0` 试更弱；`/tmp/fox_haptics_double` 可叠第二发脉冲。都不满意再调 `scripts/patch_minuitwrp_haptics.py` 里的 `kAmp` / `kDrive` 表，见 [硬件适配](#硬件适配)。 |
+| r14 已经不转子了，但拉到 300 还是偏小 | v3 只有 2 档，且波形路径没设振幅。r16（v4）改三档（50 / 150 阈值）+ 波形前 `setAmplitude()`，刷 r16 即可。 |
 | 144 Hz 没看出来 / 面板刷新率不生效 | 面板刷新率 ≠ UI 帧率；recovery 按需重绘，`fox_refresh.sh` 也只在内核明确广告 144 Hz 时才写，节点不存在就静默跳过。见 [硬件适配](#硬件适配)。 |
 
 ---
