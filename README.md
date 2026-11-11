@@ -448,8 +448,59 @@ adb shell cat /tmp/fox_drm.log
 | 开机锁定 `performance` governor | `recovery/root/init.recovery.qcom.rc` 的 `fox_perf` 服务，`on boot` 与解密完成后各触发一次 | 避免默认「均衡」把 UI 线程压到小核低频 |
 | 默认「Recovery 性能模式」改为**高性能** | 云端编译时 patch 上游 `pages/settings.xml` 的两处兜底默认值 | 让 OrangeFox 自身的启动逻辑也用高性能 |
 | 转圈动画 30 → 60 fps | 云端编译时 patch 上游 `pages/{files,main,templates/base}.xml` 共 4 处 | 只影响进度条不确定动画 |
-| **去掉 30 fps 全局天花板 / 500 ms 输入窗口** | `scripts/patch_gui_framerate.py` patch `gui/objects.hpp`、`gui/gui.cpp`、`gui/animation.cpp` | 主循环节拍 30 → 144，拖动按 UI 节拍重绘 |
+| **去掉 30 fps 全局天花板 / 500 ms 输入窗口** | `scripts/patch_gui_framerate.py` patch `gui/objects.hpp`、`gui/gui.cpp`、`gui/animation.cpp` | 主循环节拍 30 → 144；拖动窗口从 500 ms → **半帧**（v6） |
 | **面板时序 60 → 144 Hz** | `scripts/patch_minuitwrp_drm_hz.py` patch `minuitwrp/graphics_drm.cpp` | 每帧少等 9.8 ms 垂直同步，`drm_flip()` 的阻塞提交不再把帧率钉在 60 |
+
+### 为什么 144 Hz 之后还是「像 30 帧」：帧时间是串行的
+
+v5 把 `loopTimer()` 的输入窗口从 500 ms 降到 **2 帧**，这一步其实是个失误——它是
+**帧周期的下限**，而不是修复。GUI 主循环是串行的：
+
+```
+loopTimer()  →  PageManager::Update()  →  Render()  →  flip()
+```
+
+所以拖动时的一帧耗时约等于
+
+```
+max(2 / TW_FRAMERATE,  render + flip)
+```
+
+`2 / 144 s` = **13.9 ms** 的下限，加上整屏 `gr_fill` + 全部对象重绘 + `drm_flip()` 的
+13.75 MB `memcpy` 和**阻塞** atomic commit，很容易凑到 30 ms 左右——正好就是
+「像 30 帧」。面板切到 144 Hz 只是把 commit 那一段从 16.7 ms 压到 6.9 ms，
+**压不掉我们自己的窗口下限和重绘耗时**。
+
+v6 把窗口改成**半帧**（144 Hz 下 3.5 ms）：`InputHandler::processInput` 每次只读一个
+事件、`handleDrag()` 每个渲染周期只发一次拖动通知，半帧足够把输入队列排空，同时不再
+给帧周期垫底。
+
+> [!IMPORTANT]
+> `loopTimer()` 的这条窗口只在**有输入事件时**生效。手指不动时仍然是
+> `1 / TW_FRAMERATE`，所以静止画面不会无谓地空转渲染。
+
+#### 用内建计时器分辨「画得慢」还是「等得久」
+
+v6 在 `gui.cpp` 里加了一个**默认关闭**的帧计时器，开关是一个文件，不用重编译：
+
+```powershell
+adb shell touch /tmp/fox_render_trace    # 打开
+adb shell cat /tmp/fox_render.log        # 读（微秒）
+adb shell rm /tmp/fox_render_trace       # 关闭
+```
+
+输出形如：
+
+```
+ts=1794155414.612345 render=4821 flip=16903 ret=2
+```
+
+- `render` = 整页重绘耗时（CPU 软渲染）
+- `flip` = `drm_flip()` 整帧 memcpy + 阻塞 atomic commit 的等待
+
+判断方法很直接：**`flip` 稳定在 16000 上下 → 面板仍是 60 Hz**（144 Hz 应该读到 ~6900）；
+**`render` 占大头 → 瓶颈在软渲染**，得从主题/对象下手，而不是继续调面板。
+
 
 > [!NOTE]
 > 主题里那 4 处 `fps="30"` 的条件都是 `ui_progress`，只控制进度条转圈；**全局**节拍是
