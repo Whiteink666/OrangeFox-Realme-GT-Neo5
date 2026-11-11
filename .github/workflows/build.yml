@@ -171,32 +171,42 @@ jobs:
             echo "WARN: portrait_hdpi theme source not found; relying on recovery/root copy only"
           fi
 
-          echo "=== Patch upstream minuitwrp haptics: on(ms) -> perform(CLICK) ==="
+          echo "=== Patch upstream minuitwrp haptics: strength mapping + RichTap waveform ==="
           EVENTS="$(find "$ROOT" -path '*/minuitwrp/events.cpp' -print -quit)"
           if [ -z "$EVENTS" ] || [ ! -f "$EVENTS" ]; then
             echo "ERROR: minuitwrp/events.cpp not found under $ROOT"
             exit 1
           fi
           python3 "$GITHUB_WORKSPACE/scripts/patch_minuitwrp_haptics.py" "$EVENTS"
+          # v3 post-conditions: timeout_ms is a STRENGTH INTENT, never a 300 ms
+          # on() duration. Waveform-only success requires played > 0.
           grep -q 'Effect::CLICK' "$EVENTS"
-          grep -q 'EffectStrength::MEDIUM' "$EVENTS"
+          grep -q 'Effect::HEAVY_CLICK' "$EVENTS"
+          grep -q 'EffectStrength::STRONG' "$EVENTS"
+          grep -q 'setAmplitude(' "$EVENTS"
           grep -q 'std::lock_guard<std::mutex>' "$EVENTS"
           grep -q '#include <chrono>' "$EVENTS"
-          # v2 regression guards: run 12 trusted isOk() alone and fell back to
-          # a 20 ms on(), which produced NO vibration at all. Never ship that.
-          grep -q 'status.isOk() && played_ms > 0' "$EVENTS"
-          grep -q 'sVib->on((uint32_t)timeout_ms, nullptr).isOk()' "$EVENTS"
+          grep -q '#include <mutex>' "$EVENTS"
+          grep -q 'const int level = timeout_ms >= 100 ? 2' "$EVENTS"
+          grep -q 'const int drive_ms = 20 + level \* 10' "$EVENTS"
+          grep -q 'status.isOk() && played > 0' "$EVENTS"
+          grep -q 'sVib->on((uint32_t)drive_ms, nullptr).isOk()' "$EVENTS"
           grep -q '/tmp/fox_haptics_force_on' "$EVENTS"
           grep -q '/tmp/fox_haptics.log' "$EVENTS"
+          # Never let v1 (fixed 20 ms) or v2 (300 ms rotor buzz) come back.
           if grep -q 'sVib->on(20, nullptr)' "$EVENTS"; then
-            echo "ERROR: r12 20ms-only fallback is back; vibration would be dead"
+            echo "ERROR: r12 fixed-20ms fallback is back; vibration would stay weak"
             exit 1
           fi
-          if grep -q 'std::thread(' "$EVENTS" || grep -q 'vib_on_count' "$EVENTS"; then
+          if grep -q 'sVib->on((uint32_t)timeout_ms, nullptr)' "$EVENTS"; then
+            echo "ERROR: v2 300ms on(timeout_ms) buzz is back"
+            exit 1
+          fi
+          if grep -q 'std::thread(' "$EVENTS" || grep -q 'vib_on_count' "$EVENTS" || grep -q 'usleep(' "$EVENTS"; then
             echo "ERROR: upstream per-tap thread path survived the haptics patch"
             exit 1
           fi
-          echo "haptics patch (v2, guaranteed on(ms) fallback) OK: $EVENTS"
+          echo "haptics patch (v3, strength mapping + waveform ladder) OK: $EVENTS"
 
           echo "=== Whiteink overlay verification ==="
           ls -l "$SRC/sbin/maintainer.xml" "$SRC/twres/splash.xml" "$SRC/twres/images/Whiteink/"*.png
@@ -222,6 +232,19 @@ jobs:
           fi
           grep -q 'aw8697.ko panel_event_notifier.ko' "$BC"
           echo "framerate / AIDL haptics / no FIX_OFF / vendor modules: OK"
+          # vibrator_effect.json references ABSOLUTE /odm/etc/vibrator/... paths.
+          # Without a real /odm/etc in the ramdisk the RichTap HAL cannot find a
+          # waveform, perform() silently fails, and we fall back to a weak on().
+          ODM="$SRC/odm/etc"
+          test -f "$ODM/aac_richtap.config" \
+            || { echo "ERROR: /odm/etc/aac_richtap.config missing"; exit 1; }
+          grep -q '/odm/etc/vibrator/809/def/effect_0.bin' "$ODM/vibrator/vibrator_effect.json" \
+            || { echo "ERROR: vibrator_effect.json has no /odm/etc waveform paths"; exit 1; }
+          N="$(find "$ODM/vibrator" -name 'effect_*.bin' | wc -l)"
+          echo "odm/etc RichTap waveform files: $N"
+          [ "$N" -ge 150 ] \
+            || { echo "ERROR: /odm/etc waveform files missing; perform() would fail"; exit 1; }
+          echo "odm/etc waveform dual-insurance: OK"
           test -f "$SRC/sbin/fox_refresh.sh"
           sh -n "$SRC/sbin/fox_refresh.sh"
           echo "fox_refresh.sh present and shell syntax OK"

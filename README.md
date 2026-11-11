@@ -3,17 +3,19 @@
 **R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r12`
 
 > [!WARNING]
-> **`ofox-RMXTARO-r12` 已知回归：实机刷入后完全不会振动，请勿使用。**
-> 这是 patch v1 的逻辑错误，不是设备或刷入问题，详见 [硬件适配](#硬件适配)。
-> 修复版（run 13）构建完成后本提示会更新；在此之前需要振动请用 r11。
+> **`ofox-RMXTARO-r12` 的马达体验仍不对：有振动，但很弱、把振动设置拉到 300 也毫无变化、
+> 仍是转子式「嗡嗡」感。** 这**不是**完全没振动——是 patch v1 丢掉了设置值并回落到固定
+> 20 ms `on()`，详见 [硬件适配](#硬件适配)。强度映射版（patch v3）正在构建，出包前不建议刷 r12。
 
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
 由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
 
 > [!NOTE]
-> r11 有振动（但仍是转子式长震）。修复版把 `on(50ms)` 恢复为**保证能振的主路径**，
-> 仅在 HAL 明确报告播放时长时才使用 `perform(CLICK)` 波形；同时保留缓存 HAL 代理、
-> 35 ms 节流、无线程等流畅性改进，以及高性能 governor、60 fps 转圈动画与全部自定义页面。
+> 修复版（patch v3）做三件事：把振动滑块的 `0–300` 当**强度意图**而非毫秒时长，
+> 只驱动 20 / 30 / 40 ms 的短脉冲；按 `HEAVY_CLICK + STRONG → CLICK + MEDIUM →
+> CLICK + LIGHT` 阶梯播放 RichTap 波形；并把 159 个 `effect_*.bin` 补进 ramdisk 的
+> `/odm/etc/vibrator/`，让 `perform()` 真的能找到波形。高性能 governor、60 fps
+> 转圈动画与全部自定义页面保持不变。
 > 刷入前请先读 [刷入](#刷入) 与 [已知注意事项](#已知注意事项)。
 
 | 项目 | 信息 |
@@ -48,7 +50,7 @@
 | 界面 | Material You Expressive、SVG 图标引擎、Fox White / Fox Dark 双主题、Inter 字体、手势导航 |
 | 默认语言 | **简体中文**（`TW_DEFAULT_LANGUAGE := zh_CN`，可在 设置 → 语言 切换） |
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
-| 最新成功构建 | Actions **run 12**（`42861234017`，head `f31b6d1`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:59:45`，整个 run 约 **2h06m** |
+| 最新成功构建 | Actions **run 12**（`42861234017`，head `f31b6d1`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:59:45`，整个 run 约 **2h06m**；run 13（patch v2）因方向错误已取消 |
 | 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-*.zip` + 两个 `.md5` |
 
 - `fox_12.1` manifest 拉取的 `bootable/recovery` 已是 R12.0 新 UI，**无需再迁移分支**；
@@ -349,7 +351,7 @@ adb shell /sbin/setgovernor performance
 
 | 组件 | 设备树里已有的文件 | 接线方式 |
 | --- | --- | --- |
-| X 轴线性马达 | `vendor/lib/modules/1.1/aw8697.ko`（Awinic AW8697）、`/dev/awinic_haptic`、`system/bin/realme.vibrator.service`（AIDL `IVibrator` V2）、`aac_richtap.config` + 809/815 波形、`IVibrator/default` VINTF manifest | 加进 `TW_LOAD_VENDOR_MODULES` 显式 insmod；init 里 `wait /dev/awinic_haptic 2` 之后再 `start realme.vibrator`；**UI 调用路径由 `scripts/patch_minuitwrp_haptics.py` 改成 `perform(CLICK)`**，见下 |
+| X 轴线性马达 | `vendor/lib/modules/1.1/aw8697.ko`（Awinic AW8697）、`/dev/awinic_haptic`、`system/bin/realme.vibrator.service`（AIDL `IVibrator` V2）、`aac_richtap.config` + 809/815 波形、`IVibrator/default` VINTF manifest | 加进 `TW_LOAD_VENDOR_MODULES` 显式 insmod；init 里 `wait /dev/awinic_haptic 2` 之后再 `start realme.vibrator`；波形文件补进 `/odm/etc/vibrator/`；**UI 调用路径由 `scripts/patch_minuitwrp_haptics.py` 改成强度映射 + `perform()` 波形阶梯**，见下 |
 | 屏幕面板 | `vendor/lib/modules/1.1/panel_event_notifier.ko`、`vendor.display.config@1.0/2.0`、`TW_BRIGHTNESS_PATH` | 加进 `TW_LOAD_VENDOR_MODULES`；新增 `sbin/fox_refresh.sh` 做保守的 144 Hz 探测 |
 
 ### 为什么 r11 仍是「转子震感 + 滑动卡」
@@ -377,12 +379,18 @@ vib->on((uint32_t)timeout_ms, nullptr);   // 固定振幅、按毫秒长震
 | 转子马达那种「嗡嗡」感 | `on(ms)` 只给一个**恒定振幅**；线性马达需要预渲染波形。`vendor/odm/etc/vibrator/809/def/effect_*.bin` 里 300+ 个 RichTap 波形一次都没被用上。 |
 | 点击 / 滑动发涩 | 每次虚拟按键都同步走一次 binder `getService()` + `fromBinder()`；设备树原来还开了 `TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF`，会为每次点击新建一个 detached `std::thread` + `usleep(ms)` + `off()`。 |
 
-`scripts/patch_minuitwrp_haptics.py` 在每次云端 sync 后对 `vibrate()` 做函数级重写：
+`scripts/patch_minuitwrp_haptics.py` 在每次云端 sync 后对 `vibrate()` 做函数级重写（当前为 **v3 强度映射版**）：
 
 1. **缓存 HAL 代理**（mutex 保护；服务晚启动时最多每 500 ms 重试一次），不再每次触摸查 binder；
-2. 调 `perform(Effect::CLICK, EffectStrength::MEDIUM, nullptr, &played_ms)` 触发 RichTap 波形；HAL 没有 CLICK 波形时才退回 20 ms 短 `on()`，**振动不会丢**；
-3. 35 ms 节流，手势导航的连续事件不会把马达与输入线程打满；
-4. 移除 `FIX_OFF` 的 `<thread>` / `vib_on_count` 脚手架。patch 带精确匹配计数与后置断言，失效就直接让 CI 失败，不会白白编 2 小时。
+2. **`timeout_ms` 当强度意图，不当时长**：`0` 不振动，`1–99` 为 level 1，`≥100` 为 level 2；驱动
+   `20 / 30 / 40 ms` 的短脉冲，**永远不会出现 300 ms 长震**；
+3. **波形阶梯**：level 2 先试 `HEAVY_CLICK + STRONG`，失败降 `CLICK + MEDIUM`，再降 `CLICK + LIGHT`；
+   只有 `status.isOk() && played > 0` 才算波形播放成功；
+4. 波形不可用时 `setAmplitude(0.55 / 0.8 / 1.0)` 配短 `on(drive_ms)`；HAL 完全不可用时再退到
+   sysfs `/sys/class/leds/vibrator/*` 或 `timed_output`，同样是短时长，**振动不会静默丢失**；
+5. 每次事件同步 `off()` 清状态（替代上游 detached thread）、35 ms 节流、移除 `FIX_OFF` 的
+   `<thread>` / `vib_on_count` 脚手架。patch 带精确匹配计数与后置断言，失效就直接让 CI 失败，
+   不会白白编 2 小时。
 
 > [!NOTE]
 > `TW_SUPPORT_INPUT_AIDL_HAPTICS_FQNAME := "IVibrator/default"` 与
@@ -391,44 +399,65 @@ vib->on((uint32_t)timeout_ms, nullptr);   // 固定振幅、按毫秒长震
 > manifest 一致），补它等于没改；后者正是「每击建线程」的元凶。
 
 > [!TIP]
-> **怎么验证 r12 真的生效**：`perform()` 是 AIDL 纯虚接口经 vtable 调用，
-> `Effect` 是编译期枚举常量，**两者都不会在 `.so` 里留下明文字符串**，所以别用
-> `strings | grep perform` 判断。正确做法是把 r12 与 r11 的
-> `system/lib64/libminuitwrp.so` 做符号差集：r12 应**新增**
-> `std::mutex::lock/unlock`、`std::chrono::steady_clock::now`、
-> `std::shared_ptr<…IVibrator>` 的析构符号，并让 `pthread_create`、
-> `std::thread::detach`、`__thread_struct` 全部**消失**（r11 恰好相反）。
-> 这分别对应「缓存 HAL 代理 + 节流 + 锁」和「干掉每击建线程」。
+> **怎么验证 patch 真的编进去了**：`perform()` 是 AIDL 纯虚接口经 vtable 调用，
+> `Effect` / `EffectStrength` 是编译期枚举常量，**都不会在 `.so` 里留下明文字符串**，
+> 所以别用 `strings | grep perform` 判断。正确做法有两条：把 r12 与 r11 的
+> `system/lib64/libminuitwrp.so` 做符号差集（r12 应**新增** `std::mutex::lock/unlock`、
+> `std::chrono::steady_clock::now`、`std::shared_ptr<…IVibrator>` 析构符号，并让
+> `pthread_create`、`std::thread::detach`、`__thread_struct` **消失**）；v3 起还可直接
+> 检查新字面量 `/tmp/fox_haptics.log`、`/tmp/fox_haptics_force_on`、
+> `/sys/class/leds/vibrator/activate` 是否出现在 `.so` 里。
+> 另外别忘了**产物层面**的检查：ramdisk 里必须存在 `/odm/etc/vibrator/809/def/effect_0.bin`。
 
-### r12 的振动回归，以及修复版怎么改
+### r12 的「有振动但很弱 / 拉到 300 没用」，以及 v3 怎么改
 
-> [!WARNING]
-> **r12 实机刷入后完全不振动**，这是 patch v1 引入的回归，不是设备或刷入问题。
+> [!IMPORTANT]
+> 实机反馈是 **「有振动，只是很小，而且还是转子的那种震动；开到 300 也没变化」**，
+> 不是完全没振动。这个区别决定了修复方向：**要加的是力度与波形，不是时长**。
 
-三处问题叠加：
+先厘清设置值。解出 r12 镜像里的 `twres/pages/settings.xml`：
 
-1. `perform()` 只要 `status.isOk()` 就 `return 0`，**没有检查 `played_ms`**。recovery 里
-   `/odm/etc/vibrator/...` 波形库常常不可达，vendor HAL 会「返回 OK 但播放 0 ms」。
-2. 兜底只给了 `on(20)` —— 20 ms 对 X 轴线性马达几乎无感（上游 `VIBRATOR_TIME_MS` 是 50）。
-3. 删掉 `FIX_OFF` 时，把上游「等待后显式 `off()`」的状态管理一起删了，HAL 可能卡在 on 状态。
+```xml
+<data variable="tw_button_vibrate"   min="0" max="300" .../>
+<data variable="tw_keyboard_vibrate" min="0" max="300" .../>
+<data variable="tw_action_vibrate"   min="0" max="500" .../>
+```
 
-修复版（patch v2）：
+`0–300` 是**毫秒时长**，不是力度。对 X 轴线性马达，「震 300 ms」只会变成更长的嗡嗡声，
+不会变成清脆的「咔哒」。三处根因叠加：
 
-- **`on(timeout_ms)` 恢复为保证能振的主路径**，时长沿用调用方的 50 ms；
-- `perform(CLICK, MEDIUM)` 仅在 `isOk() && played_ms > 0` 时才算成功，否则自动降级到 `on(50)`；
-- 每次事件先同步 `off()` 清状态，替代上游的 detached thread，不牺牲流畅性；
-- HAL 未就绪或两次 AIDL 调用都失败时，再退到 sysfs
-  `/sys/class/leds/vibrator/*` 或 `timed_output`，**振动不会静默丢失**；
-- 缓存 HAL 代理、35 ms 节流、无线程这些流畅性改进全部保留。
+| # | 问题 | 后果 |
+| --- | --- | --- |
+| 1 | patch v1 **完全丢掉了 `timeout_ms`**：`perform()` 只要 `status.isOk()` 就返回，没检查 `played_ms`；失败则固定 `on(20)` | 拉到 300 毫无变化；实际走的是 20 ms 固定振幅短震，弱且像转子 |
+| 2 | `vibrator_effect.json` 里 159 个 `effect_file` 是**绝对路径 `/odm/etc/vibrator/...`**，而设备树只把波形放在 `recovery/root/vendor/odm/etc/...`；recovery 里 `/odm` 未挂载时 ramdisk 根本没有 `/odm/etc` | RichTap HAL 找不到波形，`perform()` 失败 / 返回 0 ms，被迫走 `on()` 兜底，预渲染波形一次都没播过 |
+| 3 | 上游 `on(ms)` 是恒定振幅，且 `FIX_OFF` 每击建一个 detached `std::thread` | 转子感 + 输入发涩 |
+
+按「完全没振动」误判做过的 patch v2 会把 `on(timeout_ms)` 恢复成主路径——设置 300 就真的
+变成 300 ms 长嗡，**方向正好相反**，对应 run 13 已取消，未出包。
+
+修复版（patch v3）改为强度映射：
+
+- `timeout_ms` → level：`0` 不振动，`1–99` → level 1，`≥100` → level 2；
+  短脉冲 `drive_ms = 20 + level*10`（20 / 30 / 40 ms），**绝不喂 `timeout_ms` 给 `on()`**；
+- 波形阶梯 `HEAVY_CLICK + STRONG → CLICK + MEDIUM → CLICK + LIGHT`，
+  只有 `isOk() && played > 0` 才算成功；
+- 波形不可用时 `setAmplitude(0.55 / 0.8 / 1.0)` + 短 `on(drive_ms)`；再失败走 sysfs 短兜底；
+- **`recovery/root/odm/etc/` 双保险**：把 159 个 `effect_*.bin`、`aac_richtap.config`、
+  `vibrator_effect.json` 与 VINTF manifest 一并放进 ramdisk 的 `/odm/etc/`，
+  让 `ENV_RICHTAP_CONFIG_PATH` 和那些绝对路径真的能解析到文件。CI 会断言 ≥150 个波形文件存在；
+- 同步 `off()`、缓存 HAL 代理、35 ms 节流、无线程这些改进全部保留。
 
 > [!TIP]
-> 运行时诊断与开关（修复版起可用，**不需要重编译**）：
+> 运行时诊断与开关（v3 起可用，**不需要重编译**）：
 > ```powershell
-> adb shell cat /tmp/fox_haptics.log         # mode=1 波形 / 2 on(ms) / 3 sysfs
-> adb shell touch /tmp/fox_haptics_force_on  # 强制走保证能振的 on(ms)
-> adb shell rm    /tmp/fox_haptics_force_on  # 恢复自动
+> adb shell cat /tmp/fox_haptics.log         # mode=1 波形 / 2 setAmplitude+on() / 3 sysfs
+>                                            # 同时记录 level / amp / drive_ms / played_ms
+> adb shell touch /tmp/fox_haptics_force_on  # 强制走 setAmplitude + 短 on()，跳过波形
+> adb shell rm    /tmp/fox_haptics_force_on  # 恢复自动波形
+> adb shell ls /odm/etc/vibrator/809/def/    # 波形是否真的在 ramdisk 里
 > ```
-> 日志只在模式变化时写一行，不会拖慢输入线程。
+> 日志只在模式变化时写一行，不会拖慢输入线程。`mode=1` 且 `played_ms>0` 即代表
+> 线性马达波形真正播放成功。
 
 > [!IMPORTANT]
 > **144 Hz 不是靠 `BoardConfig.mk` 声明出来的。** recovery 没有 SurfaceFlinger /
@@ -504,9 +533,9 @@ adb shell "cat /sys/class/graphics/fb0/dynamic_fps 2>/dev/null"
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
 | 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；已默认锁高性能，再关掉手势导航通常最有效。r12 起还去掉了每次触摸的 binder 查找与新建线程。 |
-| 刷了 r12 之后**完全没振动** | 已知回归，请刷修复版或临时回退 r11。原因见 [硬件适配](#硬件适配)：v1 只看了 `status.isOk()` 没看 `played_ms`，兜底又只有 20 ms，还丢了 `off()` 状态管理。 |
-| 线性马达摸起来还是转子那种「嗡嗡」感 | r11 及更早版本只调了 `on(ms)`，从没调过 `perform(CLICK)` 波形；见 [硬件适配](#硬件适配)。修复版会自动降级到 `on(50ms)`，保证先有振动。 |
-| 想知道这次点击到底走了哪条振动路径 | 修复版起 `adb shell cat /tmp/fox_haptics.log`：`mode=1` 波形 / `mode=2` `on(ms)` / `mode=3` sysfs 兜底。 |
+| 刷了 r12 之后振动很弱，把设置拉到 300 也没变化 | r12（patch v1）把 `timeout_ms` 整个丢了：波形失败时固定走 20 ms `on()`。设置里的 0–300 是**毫秒时长**，不是力度。修复版把当强度意图处理，见 [硬件适配](#硬件适配)。 |
+| 线性马达摸起来还是转子那种「嗡嗡」感 | 恒定振幅的 `on(ms)` 或找不到波形的短震都会是这种感觉。根因之一是 `vibrator_effect.json` 用绝对路径 `/odm/etc/vibrator/...`，而 ramdisk 里原来只有 `vendor/odm/etc/...`；v3 已把 159 个波形补进 `/odm/etc/`。见 [硬件适配](#硬件适配)。 |
+| 想知道这次点击到底走了哪条振动路径 | v3 起 `adb shell cat /tmp/fox_haptics.log`：`mode=1` 波形（含 `level` / `played_ms`） / `mode=2` `setAmplitude` + 短 `on()` / `mode=3` sysfs 兜底；`touch /tmp/fox_haptics_force_on` 可临时强制走 `mode=2`。 |
 | 144 Hz 没看出来 / 面板刷新率不生效 | 面板刷新率 ≠ UI 帧率；recovery 按需重绘，`fox_refresh.sh` 也只在内核明确广告 144 Hz 时才写，节点不存在就静默跳过。见 [硬件适配](#硬件适配)。 |
 
 ---
