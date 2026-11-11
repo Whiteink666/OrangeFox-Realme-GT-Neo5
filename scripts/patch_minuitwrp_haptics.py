@@ -1,36 +1,48 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-patch_minuitwrp_haptics.py -- Whiteink haptics patch v1
+patch_minuitwrp_haptics.py -- Whiteink haptics patch v2
 
 Rewrites upstream ``bootable/recovery/minuitwrp/events.cpp::vibrate()`` for the
 realme GT Neo5 / GT3 (RMXTARO, AW8697 X-axis linear resonant actuator).
 
-Why the upstream implementation is wrong for this device
--------------------------------------------------------
+Background
+----------
 TWRP/OrangeFox calls ``vibrate(int timeout_ms)`` on every virtual-key / button
-event. The AIDL branch does three things that hurt this device:
+event. The upstream AIDL branch does a synchronous binder
+``getService()``/``fromBinder()`` per tap, drives the motor with a constant
+amplitude ``on(timeout_ms)`` (which reads as a rotor buzz on an X-axis LRA),
+and - with ``USE_QTI_AIDL_HAPTICS_FIX_OFF`` - spawns a detached ``std::thread``
+per tap to wait and call ``off()``.
 
-  1. ``AServiceManager_getService()`` + ``IVibrator::fromBinder()`` on EVERY
-     tap -- a synchronous binder round trip on the input thread.
-  2. ``IVibrator::on(timeout_ms)`` -- a constant-amplitude, duration-based
-     buzz. On an X-axis LRA with RichTap waveforms this reads as a cheap rotor
-     motor ("嗡嗡感"); the 300+ pre-rendered ``effect_*.bin`` waveforms shipped
-     in /odm/etc/vibrator are never used.
-  3. With ``USE_QTI_AIDL_HAPTICS_FIX_OFF`` it spawns a detached ``std::thread``
-     + ``usleep(timeout_ms * 1000)`` + ``vib->off()`` per tap.
+v1 (run 12) tried to fix all of that by calling ``perform(CLICK)`` exclusively.
+It REGRESSED to zero vibration, because:
 
-What this patch does
---------------------
-  * Caches the ``IVibrator`` proxy once (mutex-protected), retrying at most
-    every 500 ms while the late-starting ``realme.vibrator`` service comes up.
-  * Fires the pre-rendered RichTap waveform through
-    ``perform(Effect::CLICK, EffectStrength::MEDIUM, nullptr, &played_ms)``.
-  * Falls back to a short, bounded 20 ms ``on()`` buzz when the HAL has no
-    CLICK waveform, so vibration is never silently lost.
-  * Rate-limits bursty gesture / virtual-key events to one every 35 ms.
-  * Removes the FIX_OFF ``<thread>`` include and ``vib_on_count`` state;
-    ``BoardConfig.mk`` no longer defines TW_SUPPORT_INPUT_AIDL_HAPTICS_FIX_OFF.
+  * ``status.isOk()`` was trusted without checking ``played_ms``. Vendor HALs
+    can return OK with a zero duration when the RichTap waveform library under
+    /odm/etc/vibrator is unreachable (common in recovery), i.e. "OK, played
+    nothing".
+  * The fallback was a 20 ms ``on()`` - too short to feel on an LRA.
+  * Removing FIX_OFF also removed the explicit ``off()`` state management that
+    some QTI HALs need between ``on()`` calls.
+
+v2 guarantees vibration first
+-----------------------------
+  * Caches the ``IVibrator`` proxy (mutex-protected, 500 ms retry while the
+    late-starting ``realme.vibrator`` comes up) -> no per-tap binder lookup.
+  * Rate-limits bursty gesture / virtual-key events to one per 35 ms.
+  * Calls ``off()`` synchronously before each event instead of spawning a
+    thread -> keeps the HAL state machine clean without the per-tap thread.
+  * Tries ``perform(Effect::CLICK, EffectStrength::MEDIUM, ...)`` and uses the
+    waveform ONLY when the HAL reports ``isOk() && played_ms > 0``.
+  * Otherwise falls back to the upstream ``on(timeout_ms)`` path with the
+    caller's own duration (50 ms), which is the same behaviour as r11 and is
+    guaranteed to produce feedback.
+  * If the HAL is unavailable or both AIDL calls fail, falls back to the sysfs
+    LED / timed_output vibrator nodes, so vibration is never silently lost.
+  * Writes mode changes to ``/tmp/fox_haptics.log`` for field diagnosis.
+  * Runtime kill switch (no rebuild): create ``/tmp/fox_haptics_force_on`` to
+    force the guaranteed ``on(ms)`` path and skip ``perform()`` entirely.
 
 Safety
 ------
@@ -51,18 +63,18 @@ Usage
 import argparse
 import sys
 
-MARKER = "// Whiteink haptics patch v1"
+MARKER = "// Whiteink haptics patch v2"
 SIGNATURE = "int vibrate(int timeout_ms)"
 
 NEW_FUNCTION = r'''int vibrate(int timeout_ms)
 {
-    // === Whiteink haptics patch v1 ===
-    // Applied by scripts/patch_minuitwrp_haptics.py on every cloud sync.
-    // Upstream calls IVibrator::on(timeout_ms) per key event: a fixed-amplitude
-    // buzz that reads as a rotor motor on the AW8697 X-axis LRA, plus a binder
-    // getService()/fromBinder() and (with FIX_OFF) a detached thread every tap.
-    // Fire the pre-rendered RichTap CLICK waveform via perform() instead, cache
-    // the HAL proxy, and rate-limit bursty gesture events.
+    // === Whiteink haptics patch v2 ===
+    // v1 trusted perform()'s isOk() without checking played_ms and fell back
+    // to a 20 ms on() with no off() management -> zero vibration in recovery
+    // when the /odm RichTap waveform library is unreachable.
+    // v2 keeps the cached proxy / throttle / no-thread wins, but makes the
+    // upstream on(timeout_ms) the GUARANTEED fallback. A waveform is used only
+    // when the HAL reports a real played duration.
     if (timeout_ms > 10000) timeout_ms = 1000;
     char tout[6];
     sprintf(tout, "%i", timeout_ms);
@@ -73,19 +85,24 @@ NEW_FUNCTION = r'''int vibrate(int timeout_ms)
         vib->on((uint32_t)timeout_ms);
     }
 #elif defined(USE_QTI_AIDL_HAPTICS)
-    // Gesture navigation / virtual keys can emit events far faster than an LRA
-    // can reproduce. Drop anything inside 35 ms so scrolling stays responsive.
     static std::chrono::steady_clock::time_point sLastBuzz;
-    const auto now = std::chrono::steady_clock::now();
-    if (now - sLastBuzz < std::chrono::milliseconds(35)) return 0;
-    sLastBuzz = now;
-
-    // realme.vibrator only starts after vendor modules are loaded, so the first
-    // taps may find no service. Retry at most every 500 ms, then keep the proxy
-    // for the rest of the session instead of a per-tap binder lookup.
     static std::mutex sVibMutex;
     static std::shared_ptr<IVibrator> sVib;
     static std::chrono::steady_clock::time_point sLastProbe;
+    static int sLastMode = -1;
+
+    const auto now = std::chrono::steady_clock::now();
+    // Gesture navigation can emit events faster than an LRA can reproduce.
+    if (now - sLastBuzz < std::chrono::milliseconds(35)) return 0;
+    sLastBuzz = now;
+
+    // Runtime kill switch, no rebuild needed:
+    //   adb shell touch /tmp/fox_haptics_force_on   -> always use on(ms)
+    //   adb shell rm    /tmp/fox_haptics_force_on   -> back to auto
+    const bool force_on = (access("/tmp/fox_haptics_force_on", F_OK) == 0);
+
+    // realme.vibrator starts only after vendor modules load; retry at most
+    // every 500 ms, then keep the proxy instead of a per-tap binder lookup.
     {
         std::lock_guard<std::mutex> lock(sVibMutex);
         if (sVib == nullptr) {
@@ -95,16 +112,56 @@ NEW_FUNCTION = r'''int vibrate(int timeout_ms)
                 ndk::SpAIBinder(AServiceManager_getService(kVibratorInstance.c_str())));
         }
     }
+
+    int mode = 0;
+    int32_t played_ms = 0;
     if (sVib != nullptr) {
-        int32_t played_ms = 0;
-        const auto status = sVib->perform(
-            ::aidl::android::hardware::vibrator::Effect::CLICK,
-            ::aidl::android::hardware::vibrator::EffectStrength::MEDIUM,
-            nullptr, &played_ms);
-        (void)played_ms;
-        if (status.isOk()) return 0;
-        // HAL has no CLICK waveform (or refused it): short bounded buzz fallback.
-        sVib->on(20, nullptr);
+        // Return the HAL to idle first. Upstream FIX_OFF did this from a
+        // detached worker after a timed wait; doing it synchronously here
+        // removes the per-tap thread without losing the off() state handling.
+        sVib->off();
+
+        if (!force_on) {
+            const auto status = sVib->perform(
+                ::aidl::android::hardware::vibrator::Effect::CLICK,
+                ::aidl::android::hardware::vibrator::EffectStrength::MEDIUM,
+                nullptr, &played_ms);
+            // isOk() alone is NOT enough: vendor HALs can return OK with a
+            // zero duration when the waveform file cannot be found.
+            if (status.isOk() && played_ms > 0) {
+                mode = 1;
+            }
+        }
+        if (mode == 0) {
+            // Guaranteed fallback: same constant-amplitude on(ms) as r11,
+            // using the caller's own duration (VIBRATOR_TIME_MS = 50).
+            if (sVib->on((uint32_t)timeout_ms, nullptr).isOk()) {
+                mode = 2;
+            }
+        }
+    }
+    if (mode == 0) {
+        // HAL unavailable or both AIDL calls failed: sysfs fallback so the
+        // user never ends up with completely dead haptics.
+        if (std::ifstream(LEDS_HAPTICS_ACTIVATE_FILE).good()) {
+            write_to_file(LEDS_HAPTICS_DURATION_FILE, tout);
+            write_to_file(LEDS_HAPTICS_ACTIVATE_FILE, "1");
+        } else {
+            write_to_file(VIBRATOR_TIMEOUT_FILE, tout);
+        }
+        mode = 3;
+    }
+
+    // Log only on mode changes: /tmp is tmpfs and this stays cheap.
+    // mode 1 = RichTap waveform, 2 = on(ms) fallback, 3 = sysfs fallback.
+    if (mode != sLastMode) {
+        sLastMode = mode;
+        FILE* f = fopen("/tmp/fox_haptics.log", "a");
+        if (f != nullptr) {
+            fprintf(f, "mode=%d played_ms=%d timeout_ms=%d force_on=%d\n",
+                    mode, played_ms, timeout_ms, force_on ? 1 : 0);
+            fclose(f);
+        }
     }
 #elif defined(USE_SAMSUNG_HAPTICS)
     /* Newer Samsung devices have duration file only
@@ -172,6 +229,7 @@ def apply(text):
         if text.count("int vibrate(int timeout_ms)") != 1:
             raise PatchError("already patched but vibrate() signature count != 1")
         for token in ("Effect::CLICK", "EffectStrength::MEDIUM", "sVibMutex",
+                      "played_ms > 0", "fox_haptics_force_on",
                       "#include <chrono>", "#include <mutex>"):
             if token not in text:
                 raise PatchError("already patched but missing %r" % token)
@@ -223,18 +281,26 @@ def apply(text):
     # --- 4. replace the function -------------------------------------------
     start, end = find_function_span(text)
     text = text[:start] + NEW_FUNCTION + text[end:]
-    notes.append("PASS replaced vibrate() with cached-HAL perform(CLICK) version")
+    notes.append("PASS replaced vibrate() with v2 (guaranteed on(ms) fallback)")
 
     # --- 5. post-conditions -------------------------------------------------
     s2, e2 = find_function_span(text)
     new_fn = text[s2:e2]
     required = ("perform(", "Effect::CLICK", "EffectStrength::MEDIUM",
                 "std::lock_guard<std::mutex>", "kVibratorInstance",
-                "USE_QTI_HAPTICS", "USE_SAMSUNG_HAPTICS", "return 0;")
+                "USE_QTI_HAPTICS", "USE_SAMSUNG_HAPTICS", "return 0;",
+                # v2 regression guards - these MUST all be present
+                "status.isOk() && played_ms > 0",
+                "sVib->on((uint32_t)timeout_ms, nullptr).isOk()",
+                "sVib->off()",
+                "LEDS_HAPTICS_ACTIVATE_FILE",
+                "/tmp/fox_haptics.log",
+                "/tmp/fox_haptics_force_on")
     for token in required:
         if token not in new_fn:
             raise PatchError("patched vibrate() missing %r" % token)
-    forbidden = ("std::thread(", "usleep(", "vib_on_count", "detach()")
+    forbidden = ("std::thread(", "usleep(", "vib_on_count", "detach()",
+                 "sVib->on(20, nullptr)")
     for token in forbidden:
         if token in new_fn:
             raise PatchError("patched vibrate() still contains %r" % token)
@@ -242,7 +308,8 @@ def apply(text):
         raise PatchError("brace imbalance in patched vibrate()")
     if "#include <chrono>" not in text or "#include <mutex>" not in text:
         raise PatchError("standard headers missing after patch")
-    notes.append("PASS post-conditions: perform(CLICK), cached proxy, no thread/usleep")
+    notes.append("PASS post-conditions: played_ms guard, guaranteed on(ms), "
+                 "sysfs fallback, no thread")
 
     return text, True, notes
 

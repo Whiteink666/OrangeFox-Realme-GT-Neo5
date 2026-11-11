@@ -182,11 +182,21 @@ jobs:
           grep -q 'EffectStrength::MEDIUM' "$EVENTS"
           grep -q 'std::lock_guard<std::mutex>' "$EVENTS"
           grep -q '#include <chrono>' "$EVENTS"
+          # v2 regression guards: run 12 trusted isOk() alone and fell back to
+          # a 20 ms on(), which produced NO vibration at all. Never ship that.
+          grep -q 'status.isOk() && played_ms > 0' "$EVENTS"
+          grep -q 'sVib->on((uint32_t)timeout_ms, nullptr).isOk()' "$EVENTS"
+          grep -q '/tmp/fox_haptics_force_on' "$EVENTS"
+          grep -q '/tmp/fox_haptics.log' "$EVENTS"
+          if grep -q 'sVib->on(20, nullptr)' "$EVENTS"; then
+            echo "ERROR: r12 20ms-only fallback is back; vibration would be dead"
+            exit 1
+          fi
           if grep -q 'std::thread(' "$EVENTS" || grep -q 'vib_on_count' "$EVENTS"; then
             echo "ERROR: upstream per-tap thread path survived the haptics patch"
             exit 1
           fi
-          echo "haptics patch OK: $EVENTS"
+          echo "haptics patch (v2, guaranteed on(ms) fallback) OK: $EVENTS"
 
           echo "=== Whiteink overlay verification ==="
           ls -l "$SRC/sbin/maintainer.xml" "$SRC/twres/splash.xml" "$SRC/twres/images/Whiteink/"*.png

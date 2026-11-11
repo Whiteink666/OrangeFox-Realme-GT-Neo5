@@ -2,14 +2,19 @@
 
 **R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r12`
 
+> [!WARNING]
+> **`ofox-RMXTARO-r12` 已知回归：实机刷入后完全不会振动，请勿使用。**
+> 这是 patch v1 的逻辑错误，不是设备或刷入问题，详见 [硬件适配](#硬件适配)。
+> 修复版（run 13）构建完成后本提示会更新；在此之前需要振动请用 r11。
+
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
 由 **🐾白墨🐾Whiteink🐾丨白墨(Whiteink)工作室** 维护与定制。
 
 > [!NOTE]
-> 最新可刷产物在 **[`ofox-RMXTARO-r12`](https://github.com/Whiteink666/OrangeFox-Realme-GT-Neo5/releases/tag/ofox-RMXTARO-r12)**，
-> 含 `perform(CLICK)` 线性马达波形、缓存 HAL 代理（去掉每次触摸的 binder 查找与新建线程）、
-> 高性能 governor、60 fps 转圈动画与全部自定义页面。刷入前请先读
-> [刷入](#刷入) 与 [已知注意事项](#已知注意事项)。
+> r11 有振动（但仍是转子式长震）。修复版把 `on(50ms)` 恢复为**保证能振的主路径**，
+> 仅在 HAL 明确报告播放时长时才使用 `perform(CLICK)` 波形；同时保留缓存 HAL 代理、
+> 35 ms 节流、无线程等流畅性改进，以及高性能 governor、60 fps 转圈动画与全部自定义页面。
+> 刷入前请先读 [刷入](#刷入) 与 [已知注意事项](#已知注意事项)。
 
 | 项目 | 信息 |
 | --- | --- |
@@ -395,6 +400,36 @@ vib->on((uint32_t)timeout_ms, nullptr);   // 固定振幅、按毫秒长震
 > `std::thread::detach`、`__thread_struct` 全部**消失**（r11 恰好相反）。
 > 这分别对应「缓存 HAL 代理 + 节流 + 锁」和「干掉每击建线程」。
 
+### r12 的振动回归，以及修复版怎么改
+
+> [!WARNING]
+> **r12 实机刷入后完全不振动**，这是 patch v1 引入的回归，不是设备或刷入问题。
+
+三处问题叠加：
+
+1. `perform()` 只要 `status.isOk()` 就 `return 0`，**没有检查 `played_ms`**。recovery 里
+   `/odm/etc/vibrator/...` 波形库常常不可达，vendor HAL 会「返回 OK 但播放 0 ms」。
+2. 兜底只给了 `on(20)` —— 20 ms 对 X 轴线性马达几乎无感（上游 `VIBRATOR_TIME_MS` 是 50）。
+3. 删掉 `FIX_OFF` 时，把上游「等待后显式 `off()`」的状态管理一起删了，HAL 可能卡在 on 状态。
+
+修复版（patch v2）：
+
+- **`on(timeout_ms)` 恢复为保证能振的主路径**，时长沿用调用方的 50 ms；
+- `perform(CLICK, MEDIUM)` 仅在 `isOk() && played_ms > 0` 时才算成功，否则自动降级到 `on(50)`；
+- 每次事件先同步 `off()` 清状态，替代上游的 detached thread，不牺牲流畅性；
+- HAL 未就绪或两次 AIDL 调用都失败时，再退到 sysfs
+  `/sys/class/leds/vibrator/*` 或 `timed_output`，**振动不会静默丢失**；
+- 缓存 HAL 代理、35 ms 节流、无线程这些流畅性改进全部保留。
+
+> [!TIP]
+> 运行时诊断与开关（修复版起可用，**不需要重编译**）：
+> ```powershell
+> adb shell cat /tmp/fox_haptics.log         # mode=1 波形 / 2 on(ms) / 3 sysfs
+> adb shell touch /tmp/fox_haptics_force_on  # 强制走保证能振的 on(ms)
+> adb shell rm    /tmp/fox_haptics_force_on  # 恢复自动
+> ```
+> 日志只在模式变化时写一行，不会拖慢输入线程。
+
 > [!IMPORTANT]
 > **144 Hz 不是靠 `BoardConfig.mk` 声明出来的。** recovery 没有 SurfaceFlinger /
 > DisplayManager / SettingsProvider，`settings put system peak_refresh_rate 144`
@@ -469,7 +504,9 @@ adb shell "cat /sys/class/graphics/fb0/dynamic_fps 2>/dev/null"
 | 运行中下载日志返回 `BlobNotFound` / 404 | 归档分片尚未上传，不是失败；完整日志在 `build-log-<run号>` artifact 里。 |
 | `fastboot flash` 后重启又变回原厂 recovery | 只刷 img 是非持久安装，必须进 recovery 后再刷签名 zip，见 [完整安装](#完整安装需要-orangefox-签名-zip)。 |
 | 界面操作起来卡、感觉没有 60 帧 | 见 [UI 流畅度](#ui-流畅度)：recovery 是按需重绘、本就没有恒定帧率；已默认锁高性能，再关掉手势导航通常最有效。r12 起还去掉了每次触摸的 binder 查找与新建线程。 |
-| 线性马达摸起来还是转子那种「嗡嗡」感 | r11 及更早版本只调了 `on(ms)`，从没调过 `perform(CLICK)` 波形；见 [硬件适配](#硬件适配)。r12 已重写 `vibrate()`，可用 `libminuitwrp.so` 的符号差集确认（mutex/chrono/shared_ptr 新增、`pthread_create` 消失）。 |
+| 刷了 r12 之后**完全没振动** | 已知回归，请刷修复版或临时回退 r11。原因见 [硬件适配](#硬件适配)：v1 只看了 `status.isOk()` 没看 `played_ms`，兜底又只有 20 ms，还丢了 `off()` 状态管理。 |
+| 线性马达摸起来还是转子那种「嗡嗡」感 | r11 及更早版本只调了 `on(ms)`，从没调过 `perform(CLICK)` 波形；见 [硬件适配](#硬件适配)。修复版会自动降级到 `on(50ms)`，保证先有振动。 |
+| 想知道这次点击到底走了哪条振动路径 | 修复版起 `adb shell cat /tmp/fox_haptics.log`：`mode=1` 波形 / `mode=2` `on(ms)` / `mode=3` sysfs 兜底。 |
 | 144 Hz 没看出来 / 面板刷新率不生效 | 面板刷新率 ≠ UI 帧率；recovery 按需重绘，`fox_refresh.sh` 也只在内核明确广告 144 Hz 时才写，节点不存在就静默跳过。见 [硬件适配](#硬件适配)。 |
 
 ---
