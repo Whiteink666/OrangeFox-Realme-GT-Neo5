@@ -1,0 +1,171 @@
+#!/sbin/sh
+# Whiteink fox-diag —— 在 recovery 内直接执行，不需要电脑。
+#
+# 一次刷入同时做两件事：
+#   1) 取证：马达 sysfs 节点、显示刷新率节点、当前图形后端全部打印
+#   2) 实验：直接写马达 brightness 拉满让你感受；逐个尝试把面板切到 144Hz
+#
+# 输出写屏幕（recovery 安装界面）+ recovery 日志 + /sdcard/fox_diag.txt。
+# 安全约束：
+#   * 马达 brightness 实验后一律复原
+#   * 只对"内容为纯数字"的节点尝试写刷新率，避免把 fps=60 这类信息节点写坏
+#   * msm_fb_panel_info 只读不写
+
+OUTFD="$2"
+LOG=/tmp/fox_diag.txt
+: > "$LOG" 2>/dev/null
+
+ui() {
+    if [ -n "$OUTFD" ]; then
+        echo "ui_print $1" >&"$OUTFD" 2>/dev/null
+        echo "ui_print" >&"$OUTFD" 2>/dev/null
+    fi
+    echo "$1" >> "$LOG" 2>/dev/null
+}
+
+sec() {
+    ui " "
+    ui "======== $1 ========"
+}
+
+# 统计二进制里的字符串出现次数；strings 不存在时退回 grep -a
+count_str() {
+    if command -v strings >/dev/null 2>&1; then
+        strings "$1" 2>/dev/null | grep -c "$2"
+    else
+        grep -a -c "$2" "$1" 2>/dev/null
+    fi
+}
+
+# ---------------------------------------------------------------- 1. 版本确认
+sec "1/5 构建版本"
+LIB=""
+for l in /system/lib64/libminuitwrp.so /system/lib/libminuitwrp.so /sbin/libminuitwrp.so; do
+    [ -f "$l" ] && LIB="$l" && break
+done
+ui "libminuitwrp: ${LIB:-未找到}"
+if [ -n "$LIB" ]; then
+    ui "  v4 gain 标记: $(count_str "$LIB" 'gain=%d')   (1=r16/v4, 0=更早)"
+    ui "  double 脉冲开关: $(count_str "$LIB" 'fox_haptics_double')"
+fi
+ui "changelog: $(grep -m1 -o 'OrangeFox Recovery R[0-9.]*' /twres/changelog.txt 2>/dev/null)"
+
+# ---------------------------------------------------------------- 2. 节点清单
+sec "2/5 振动节点清单"
+V=/sys/class/leds/vibrator
+if [ -d "$V" ]; then
+    ui "  全部节点: $(ls "$V" 2>/dev/null | tr '\n' ' ')"
+    for a in max_brightness brightness duration activate trigger gain vmax rtp mode; do
+        p="$V/$a"
+        [ -e "$p" ] && ui "  $a = $(cat "$p" 2>/dev/null | head -c 60)"
+    done
+else
+    ui "  /sys/class/leds/vibrator 不存在"
+    ui "  /sys/class/leds: $(ls /sys/class/leds 2>/dev/null | tr '\n' ' ')"
+fi
+for d in /sys/class/*aw* /sys/class/*haptic* /sys/class/timed_output; do
+    [ -d "$d" ] && ui "  [$d]: $(ls "$d" 2>/dev/null | tr '\n' ' ')"
+done
+ui "  /dev/awinic_haptic: $(ls -l /dev/awinic_haptic 2>/dev/null | sed 's/.* //')"
+ui "  HAL 进程数: $(ps -A 2>/dev/null | grep -c realme.vibrator)"
+ui "  最近一次点击: $(tail -2 /tmp/fox_haptics.log 2>/dev/null | tr '\n' ' ')"
+
+# ------------------------------------------------------- 3. 振幅实验（会震动）
+sec "3/5 振幅实验：请记住这三下的力度"
+MAXB=$(cat "$V/max_brightness" 2>/dev/null)
+MAXB=${MAXB:-255}
+ui "  max_brightness=$MAXB"
+if [ -d "$V" ] && [ -e "$V/brightness" ]; then
+    ORIG=$(cat "$V/brightness" 2>/dev/null)
+    echo transient > "$V/trigger" 2>/dev/null
+    pulse() {  # $1=brightness $2=duration $3=序号说明
+        ui " "
+        ui "  >>> 第 $3：brightness=$1 / ${2}ms"
+        echo "$2" > "$V/duration" 2>/dev/null
+        echo "$1" > "$V/brightness" 2>/dev/null
+        echo 1 > "$V/activate" 2>/dev/null
+        sleep 3
+        ui "      回读 brightness=$(cat "$V/brightness" 2>/dev/null) duration=$(cat "$V/duration" 2>/dev/null)"
+    }
+    pulse 60 120 "1 下（低振幅，作为对照）"
+    pulse "$MAXB" 120 "2 下（满振幅，长脉冲）"
+    pulse "$MAXB" 40  "3 下（满振幅，短脉冲，更脆）"
+    ui " "
+    ui "  记好这三下，再点 REC 里的按钮对比 HAL 波形那一下"
+    echo "${ORIG:-0}" > "$V/brightness" 2>/dev/null
+    ui "  已复原 brightness=${ORIG:-0}"
+else
+    ui "  没有 brightness 节点，无法做振幅实验"
+fi
+
+# ---------------------------------------------------------- 4. 刷新率实验
+sec "4/5 显示与刷新率"
+ui "fb0 virtual_size: $(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)"
+ui "fb0 bpp:          $(cat /sys/class/graphics/fb0/bits_per_pixel 2>/dev/null)"
+ui "fb0 目录: $(ls /sys/class/graphics/fb0 2>/dev/null | tr '\n' ' ')"
+ui "fb0 modes:"
+cat /sys/class/graphics/fb0/modes 2>/dev/null | head -6 | while read -r m; do ui "    $m"; done
+ui "drm card0-DSI-1 目录: $(ls /sys/class/drm/card0-DSI-1 2>/dev/null | tr '\n' ' ')"
+ui "drm modes:"
+cat /sys/class/drm/card0-DSI-1/modes 2>/dev/null | head -6 | while read -r m; do ui "    $m"; done
+
+ui "--- fps/刷新率相关节点当前值 ---"
+for f in /sys/class/graphics/fb0/* /sys/class/drm/card0-DSI-1/* /sys/kernel/oplus_display/*; do
+    [ -f "$f" ] || continue
+    case "$f" in
+        *fps*|*FPS*|*refresh*|*mode*) ui "  [$(basename "$f")] $(cat "$f" 2>/dev/null | head -c 80)" ;;
+    esac
+done
+
+ui "--- 逐个尝试切 144 / 120（只写纯数值节点）---"
+TRY="/sys/class/graphics/fb0/dynamic_fps
+/sys/class/graphics/fb0/msm_fb_dfps_mode
+/sys/class/drm/card0-DSI-1/dynamic_fps
+/sys/class/drm/card0-DSI-1/msm_fb_dfps_mode
+/sys/kernel/oplus_display/dynamic_fps
+/sys/kernel/oplus_display/panel_fps
+/sys/kernel/oplus_display/oplus_display_fps"
+TRIED=0
+for n in $TRY; do
+    [ -e "$n" ] || continue
+    TRIED=1
+    if [ ! -w "$n" ]; then
+        ui "  $(basename "$n"): 存在但不可写"
+        continue
+    fi
+    before=$(cat "$n" 2>/dev/null)
+    cur=$(printf '%s' "$before" | tr -d ' \t\r\n')
+    case "$cur" in
+        ''|*[!0-9]*)
+            ui "  $(basename "$n"): 非纯数值(内容='$(printf '%s' "$before" | head -c 40)')，跳过不写"
+            continue ;;
+    esac
+    for v in 144 120; do
+        echo "$v" > "$n" 2>/dev/null
+        now=$(cat "$n" 2>/dev/null | tr -d ' \t\r\n')
+        if [ "$now" != "$cur" ]; then
+            ui "  $(basename "$n"): $cur -> 写$v 得 $now"
+        else
+            ui "  $(basename "$n"): 写 $v 被拒(仍 $now)"
+        fi
+    done
+    echo "$before" > "$n" 2>/dev/null
+done
+[ "$TRIED" -eq 0 ] && ui "  候选节点一个都不存在（下面看 fox_refresh 日志判断原因）"
+ui "  fox_refresh 日志:"
+tail -6 /tmp/fox_refresh.log 2>/dev/null | while read -r l; do ui "    $l"; done
+
+# ---------------------------------------------------------------- 5. 收尾
+sec "5/5 收尾"
+ui "governor: $(cat /sys/devices/system/cpu/cpu7/cpufreq/scaling_governor 2>/dev/null)"
+ui "图形后端: $(grep -i -m2 'using drm\|using fbdev\|double buffered\|single buffered' /tmp/recovery.log 2>/dev/null | tr '\n' ' ')"
+
+SAVED=""
+for d in /sdcard /data/media/0 /tmp; do
+    if [ -d "$d" ]; then
+        cp -f "$LOG" "$d/fox_diag.txt" 2>/dev/null && SAVED="$d/fox_diag.txt" && break
+    fi
+done
+ui " "
+ui "结果已保存: ${SAVED:-失败（可能在 /tmp/fox_diag.txt）}"
+ui "完成，可以返回主菜单了"

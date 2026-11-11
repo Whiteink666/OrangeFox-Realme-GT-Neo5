@@ -19,3 +19,6 @@ __pycache__/
 *token*
 *secret*.txt
 .gh_token
+
+# Generated flashable zips (dist/fox-diag-rNN.zip)
+dist/
