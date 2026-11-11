@@ -1,18 +1,29 @@
 # OrangeFox Recovery for realme GT Neo5 / GT3 (RMXTARO · senna)
 
-**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r18`
+**R12.0 新 UI** · **默认简体中文** · **GPL-3.0** · 最新构建 `ofox-RMXTARO-r20`
 
 > [!IMPORTANT]
-> **`ofox-RMXTARO-r18` 已出包（144 Hz 面板时序 + 144 fps 主循环）**：run 18 十五步全绿，
-> `mka_rc=0`，`0 FAILED`，build 步骤 `01:34:29`，可下载 `recovery.img` / zip。
-> 本轮把面板从一直被钉住的 **60 Hz** 切到 **144 Hz**（见
-> [144 Hz：面板一直被迫跑 60 Hz](#144-hz面板一直被迫跑-60-hz)），
-> 并把 `TW_FRAMERATE` 提到 144。r12 / r13 / r15 请勿使用（r15 未产出任何产物）。
+> **`ofox-RMXTARO-r20` 已出包（patch v6）**：run 20 十五步全绿，`mka_rc=0`，`0 FAILED`，
+> build 步骤 `01:33:55`，可下载 `recovery.img` / zip。
 >
-> **待实机确认**：刷入后 `adb shell cat /tmp/fox_drm.log` 应出现
-> `vrefresh=144 modeset_ok=1`；若是 `vrefresh=60`，说明 144 Hz 时序被内核拒绝、黑屏保险
-> 已退回 60 Hz（画面正常但没提速）。线性马达力度已在 r16 定型，本轮不再改动
+> 这一轮改的是**拖动时的帧周期**，不是面板：GUI 主循环是
+> `loopTimer() → Update() → Render() → flip()` 一条串行链，v5 把输入窗口设成「2 帧」
+> 等于给每帧垫了 13.9 ms 的下限，叠上整屏重绘和阻塞提交就是 ~30 ms —— 也就是
+> 「像 30 帧」。v6 把它降到**半帧**（3.5 ms），并加了可运行时开关的帧计时器。
+> 详见 [为什么 144 Hz 之后还是「像 30 帧」](#为什么-144-hz-之后还是像-30-帧帧时间是串行的)。
+>
+> **刷入后请先做这两步**（不需要重编译）：
+>
+> ```powershell
+> adb shell cat /tmp/fox_drm.log              # 期望 vrefresh=144 modeset_ok=1
+> adb shell touch /tmp/fox_render_trace       # 打开帧计时器，滑动十几秒后
+> adb shell cat /tmp/fox_render.log | tail -40
+> ```
+>
+> `flip` ≈ 16000 说明面板还是 60 Hz；`flip` ≈ 6900 说明 144 Hz 生效；`render` 占大头
+> 说明瓶颈在软渲染。线性马达力度已在 r16 定型，不再改动
 > （见 [力度上限：为什么停在这里](#力度上限为什么停在这里)）。
+
 
 
 一款面向 **realme GT Neo5 / GT3** 的第三方 Recovery，基于 OrangeFox（橙狐）R12.0 构建，
@@ -60,8 +71,9 @@
 | 定制内容 | 白墨维护者页面、QQ 群 / 酷安 / GitHub 二维码、开机画面吉祥物头像 |
 | 上一版构建 | Actions **run 16**（`42986555580`，head `4489b2d`）成功，15 步全绿，`mka_rc=0`，build 步骤 `01:03:36`，整个 run 约 **69 min**；`recovery.img`、zip 均已下载并 SHA256 校验，离线解包确认 v4 三档映射 + gain 开关 + 159 个 `/odm/etc` 波形、4 个 60 fps 转圈动画全部在镜像内 |
 | 上一轮失败 | **run 15**（`42985063405`，head `65d401e7`）在**第 9 步注入闸门 6 分钟内**失败：`patch_gui_framerate.py` 用了 Python 3.13 才有的 `Path.read_text(newline=)`，runner 是 3.10。已修（改用 `open()`，基线降到 3.8），并新增 `scripts/check_py_compat.py` 静态拦截——**第 10 步编译未启动，没有浪费 2 小时** |
-| 最新构建 | Actions **run 18**（`43010066481`，head `6c142d7`）**成功**，15 步全绿，`mka_rc=0`，`0 FAILED`，build 步骤 `01:34:29`，整个 run 约 **104 min**；release `ofox-RMXTARO-r18` 已发布 4 个 assets（`recovery.img` 100.0 MB、zip 70.4 MB、两个 `.md5`） |
-| 本轮改动 | **patch v5**：① 新增 `scripts/patch_minuitwrp_drm_hz.py`，让 `graphics_drm.cpp` 在原生分辨率下选 **144 Hz** 时序并在失败时回退到内核首选时序；② `TW_FRAMERATE` 主循环节拍 `120 → 144`（`BoardConfig.mk` 与 `gui/objects.hpp` 同步）。线性马达力度不再改动 |
+| 最新构建 | Actions **run 20**（`43063419247`，head `a1c8c41`）**成功**，15 步全绿，`mka_rc=0`，`0 FAILED`，build 步骤 `01:33:55`，整个 run 约 **107 min**；release `ofox-RMXTARO-r20` 已发布 4 个 assets（`recovery.img` 100.0 MB、zip 70.4 MB、两个 `.md5`） |
+| run 19 失败 | 两次尝试都挂在第 5 步 `apt`：runner 的 DNS 整体不可用（`Temporary failure resolving 'azure.archive.ubuntu.com'`）。第 5 步与 run 18 逐字节相同，属 runner 环境问题。已给第 5 步加三层镜像兜底，见 [CI 已知问题：runner DNS 故障](#ci-已知问题runner-dns-故障导致第-5-步-apt-失败) |
+| 本轮改动 | **patch v6**：① `gui.cpp` 拖动窗口 `2 帧 → 半帧`（去掉 13.9 ms 的帧周期下限）；② 新增可运行时开关的 `render` / `flip` 帧计时器；③ 保留 v5 的 144 Hz DRM 时序与 `TW_FRAMERATE 144`；④ 第 5 步 `apt` 加三层镜像兜底 |
 | 后端确认 | 编译日志里 `//bootable/recovery/minuitwrp:libminuitwrp clang++ graphics_drm.cpp` 与 `graphics_drm.cpp [arm]` 均在列（77% 处），**DRM 后端确实参与编译**，补丁不会挂空 |
 | 编译耗时波动 | 同样的 `-j1`、同样 28030 个 target：run 14 用 **122 min**，run 16 用 **64 min**。差异来自**换了一台 runner 虚拟机**（`1000000821` → `1000000823`），与提交内容无关，不是「越编越慢」 |
 | 典型产物 | `recovery.img`（100 MiB）+ 已签名 `OrangeFox-*.zip` + 两个 `.md5` |
