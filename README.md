@@ -557,6 +557,54 @@ adb shell cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 adb shell /sbin/setgovernor performance
 ```
 
+### 触摸：144 Hz 面板却配了 60 Hz 报点率
+
+2026-11-14 用 adb 在 recovery（root）里实测，把这条线彻底查清了：
+
+```
+/sys/kernel/oplus_display/dynamic_te          = 144   ← 面板确实跑在 144 Hz
+/tmp/fox_drm.log                              = vrefresh=144 modeset_ok=1
+/proc/touchpanel/game_switch_enable           = 0, high_frame_support:1, high_frame_value:0
+dmesg: report_rate_limit not specified, we will set it 60hz
+       synaptics-s3910: default rate 60 / default game value 1
+       synaptics-s3910: fps_report_rate is: 60 / 90 / 120
+       synaptics-s3910: extreme_game_report_rate 0     ← 这颗 IC 没有 240 Hz 档
+```
+
+**面板 144 Hz、触摸只有 60 Hz。** 不管 GUI 画得多快，拖动时每秒只有 ~60 个位置
+更新，这就是「滑起来像 30 帧 / 不跟手」的另一半原因。触控 IC 是 Synaptics
+S3910（SPI，`/dev/input/event5`），驱动支持 60 / 90 / 120 Hz 三档，但内核没指定
+`report_rate_limit`，回退到 60 Hz，`game_switch_enable` 也是 0。
+
+两个可逆的运行时开关，逐值试出的映射：
+
+| 节点 / 值 | 驱动响应 |
+| --- | --- |
+| `echo 1 > game_switch_enable` | `syna_tcm_set_game_mode: enable[1]`，`set report_rate:1` |
+| `echo 0 > game_switch_enable` | `syna_report_refresh_switch: refresh_switch: 60 HZ` |
+| `echo 0 > report_rate_white_list` | `DC_SET_REPORT_FRE: 1` |
+| `echo 1 > report_rate_white_list` | `DC_SET_REPORT_FRE: 2` |
+| **`echo 2 > report_rate_white_list`** | **`DC_SET_REPORT_FRE: 3`（最高档）** |
+| `echo ≥3 > report_rate_white_list` | 驱动忽略 |
+
+> [!IMPORTANT]
+> 驱动进入 `normal_mode`（自检 / resume / 重新初始化）时会**自己把报点率打回 60 Hz**：
+> `syna_tcm_normal_mode: enter → syna_report_refresh_switch: refresh_switch: 60 HZ success!`。
+> 所以开机写一次是不够的——`sbin/fox_touch_rate.sh` 是一个**常驻** watchdog
+> （init.rc 里故意**不加 `oneshot`**），每 5 秒检查一次，只在值漂移时重写，
+> 不漂移就不写日志。它只写两个 `/proc` 节点，**不刷任何分区、不删除任何文件**。
+
+验证是否生效：
+
+```powershell
+adb shell "cat /proc/touchpanel/game_switch_enable; cat /proc/touchpanel/report_rate_white_list"
+adb shell "cat /sys/kernel/oplus_display/dynamic_te"
+adb shell "cat /tmp/fox_touch.log"
+adb shell "dmesg | grep -E 'DC_SET_REPORT_FRE|set report_rate'"
+```
+
+期望：`1, high_frame_support:1`、`2`、`144`，日志里有 `re-assert` 记录。
+
 ---
 
 ## 硬件适配

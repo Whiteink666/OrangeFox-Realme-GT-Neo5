@@ -396,6 +396,32 @@ jobs:
           echo -n "vibrator service start: "
           grep -c 'start realme.vibrator' "$SRC/init.recovery.qcom.rc"
 
+          echo "=== Touch report-rate watchdog (144 Hz panel pairing) ==="
+          # Measured on device: the Synaptics S3910 boots at 60 Hz while the
+          # panel scans out at 144 Hz, and the driver resets itself to 60 Hz
+          # on normal_mode. A one-shot init write does not survive boot, so
+          # the service is deliberately resident (no `oneshot`).
+          TOUCH="$SRC/sbin/fox_touch_rate.sh"
+          test -x "$TOUCH" || { echo "ERROR: fox_touch_rate.sh missing or not executable"; exit 1; }
+          sh -n "$TOUCH" || { echo "ERROR: fox_touch_rate.sh has a shell syntax error"; exit 1; }
+          grep -q '/proc/touchpanel/game_switch_enable' "$TOUCH"
+          grep -q '/proc/touchpanel/report_rate_white_list' "$TOUCH"
+          grep -q 'WLIST_VALUE=2' "$TOUCH"
+          grep -q '/sys/kernel/oplus_display/dynamic_te' "$TOUCH"
+          # It must not delete anything, and must not be oneshot in init.rc.
+          if grep -qE '(^|[^a-z])rm[[:space:]]|unlink[[:space:]]' "$TOUCH"; then
+            echo "ERROR: fox_touch_rate.sh deletes files"
+            exit 1
+          fi
+          RC="$SRC/init.recovery.qcom.rc"
+          grep -q 'service fox_touch_rate ' "$RC"
+          grep -q 'start fox_touch_rate' "$RC"
+          if sed -n '/^service fox_touch_rate /,/^$/p' "$RC" | grep -q 'oneshot'; then
+            echo "ERROR: fox_touch_rate must stay resident; oneshot loses the 60 Hz reset race"
+            exit 1
+          fi
+          echo "touch rate watchdog: present, executable, resident, syntax OK"
+
       - name: Build recovery
         # GitHub Actions runs steps with `bash -e` by default. AOSP envsetup.sh
         # is NOT -e safe: it exits silently after sourcing vendorsetup.sh, so

@@ -67,11 +67,23 @@ service fox_refresh /system/bin/sh /sbin/fox_refresh.sh
     oneshot
     seclabel u:r:recovery:s0
 
+# Resident watchdog that keeps the Synaptics S3910 touch report rate at its
+# top tier while the panel runs at 144 Hz. NOT oneshot on purpose: the driver
+# resets itself to 60 Hz on normal_mode (self-test / resume), so a single
+# early write does not survive boot. The script sleeps 5 s between checks and
+# only writes when a value drifted. See sbin/fox_touch_rate.sh.
+service fox_touch_rate /system/bin/sh /sbin/fox_touch_rate.sh
+    user root
+    group root
+    disabled
+    seclabel u:r:recovery:s0
+
 on boot
     setprop sys.usb.config adb
     start variant-script
     start fox_perf
     start fox_refresh
+    start fox_touch_rate
 
 on property:twrp.modules.loaded=true
     start touch_report
