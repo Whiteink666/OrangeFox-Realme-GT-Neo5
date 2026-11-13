@@ -285,9 +285,12 @@ jobs:
           # OrangeFox 12.1 Android.mk never forwards BoardConfig TW_FRAMERATE
           # into a -D flag. The compiled value came from gui/objects.hpp (30),
           # and gui.cpp used a 500 ms catch-up window on any input event.
-          # v6 also caps that window at HALF a frame (v5 used two frames, which
-          # was itself a floor of 2/TW_FRAMERATE on the drag frame period) and
-          # adds a runtime-gated render/flip timer.
+          # v7 fixes the actual reason a drag felt dead: loopTimer() consumed
+          # exactly ONE input event per call, so at 234 Hz touch sampling the
+          # queue grew without bound and a direction change was invisible until
+          # it drained. It now drains every pending event (capped at 64) before
+          # drawing, and processInput() only reports a real event as one.
+          # It also keeps the runtime-gated render/flip timer.
           GUI="$(find "$ROOT/bootable/recovery" -path '*/gui/pages.cpp' -printf '%h\n' 2>/dev/null | head -1)"
           if [ -z "$GUI" ] || [ ! -d "$GUI" ]; then
             echo "ERROR: bootable/recovery/gui directory not found under $ROOT"
@@ -295,8 +298,10 @@ jobs:
           fi
           python3 "$GITHUB_WORKSPACE/scripts/patch_gui_framerate.py" "$GUI"
           grep -q '#define TW_FRAMERATE 144' "$GUI/objects.hpp"
-          grep -q 'long timeout = (long)(' "$GUI/gui.cpp"
-          grep -q 'got_event ? 2 : 1))' "$GUI/gui.cpp"
+          grep -q 'int drain_count = 0;' "$GUI/gui.cpp"
+          grep -q 'if (got_event && ++drain_count < 64)' "$GUI/gui.cpp"
+          grep -q 'return (ret >= 0); // Whiteink framerate patch v7' "$GUI/gui.cpp"
+          grep -q 'long timeout = (long)(1.0 / TW_FRAMERATE' "$GUI/gui.cpp"
           grep -q 'mUpdateCount >= TW_FRAMERATE / mFPS' "$GUI/animation.cpp"
           # Frame timing trace must be wired: it is how we tell "CPU render is
           # slow" from "we are waiting for the panel" on the device.
@@ -307,12 +312,16 @@ jobs:
             echo "ERROR: 30 fps default / 500 ms input window survived the framerate patch"
             exit 1
           fi
-          # v5's two-frame window was a floor on the frame period, not a fix.
+          # Older shapes of this patch must never come back.
           if grep -q '1000000000) \* (got_event' "$GUI/gui.cpp"; then
-            echo "ERROR: v5 two-frame drag window is back; drags will stall at ~2/TW_FRAMERATE"
+            echo "ERROR: v5 two-frame window is back; it is a floor on the frame period"
             exit 1
           fi
-          echo "framerate patch (v6, 144 fps ceiling + half-frame drag window + timing trace) OK: $GUI"
+          if grep -q 'return (ret != -2);' "$GUI/gui.cpp"; then
+            echo "ERROR: processInput still reports timeouts as events; the queue cannot drain"
+            exit 1
+          fi
+          echo "framerate patch (v7, 144 fps + input-queue drain + timing trace) OK: $GUI"
 
           echo "=== Patch upstream minuitwrp DRM: 144 Hz panel timing ==="
           # find_main_monitor() only ever honoured DRM_MODE_TYPE_PREFERRED, and

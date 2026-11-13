@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-patch_gui_framerate.py -- Whiteink framerate patch v6
+patch_gui_framerate.py -- Whiteink framerate patch v7
 
 Why this exists
 ---------------
@@ -65,13 +65,13 @@ import sys
 from pathlib import Path
 
 MIN_PY = (3, 8)
-MARKER = "Whiteink framerate patch v6"
+MARKER = "Whiteink framerate patch v7"
 
 OBJECTS_OLD = """#ifndef TW_FRAMERATE
 #define TW_FRAMERATE 30
 #endif
 """
-OBJECTS_NEW = """// Whiteink framerate patch v6: OrangeFox 12.1 Android.mk never forwards the
+OBJECTS_NEW = """// Whiteink framerate patch v7: OrangeFox 12.1 Android.mk never forwards the
 // BoardConfig TW_FRAMERATE variable into a -D flag, so this default (30) was
 // the REAL global redraw cadence. 144 removes that ceiling and matches the
 // 144 Hz panel mode selected by the DRM patch; the achievable rate stays
@@ -80,13 +80,37 @@ OBJECTS_NEW = """// Whiteink framerate patch v6: OrangeFox 12.1 Android.mk never
 #define TW_FRAMERATE 144
 """
 
-LOOP_OLD = "\t\tlong timeout = got_event ? 500000000 : (1.0 / TW_FRAMERATE * 1000000000);"
-LOOP_NEW = """\t\t// Whiteink framerate patch v6: upstream used a 500 ms catch-up window
-\t\t// whenever an input event was seen, collapsing drags to ~2 redraws/sec.
-\t\t// v5 capped it at two UI frames - still a FLOOR of 2/TW_FRAMERATE on the
-\t\t// frame period, which added to render+flip is what showed up as "30 fps"
-\t\t// while scrolling. Half a frame is enough to drain the input queue.
-\t\tlong timeout = (long)((1.0 / TW_FRAMERATE * 1000000000) / (got_event ? 2 : 1));"""
+# --- v7: drain the touch queue before drawing -------------------------------
+# processInput() consumes exactly ONE input event per call and returns
+# (ret != -2). With the wait window already exceeded, loopTimer() therefore
+# returned after a single event. Touch samples at ~234 Hz on this device, a
+# frame costs ~20-25 ms, so ~5 events pile up per frame and the backlog grows
+# without bound: the list keeps moving in the OLD direction and a reversal
+# looks dead until the queue drains.
+DRAIN_OLD = """\tdo
+\t{
+\t\tbool got_event = input_handler.processInput(input_timeout_ms); // get inputs but don't send drag notices"""
+DRAIN_NEW = """\tint drain_count = 0; // Whiteink framerate patch v7: events consumed this cycle
+\tdo
+\t{
+\t\tbool got_event = input_handler.processInput(input_timeout_ms); // get inputs but don't send drag notices"""
+
+LOOP_OLD = """\t\t// This is really 2 or TW_FRAMERATE times per second
+\t\t// As long as we get events, increase the timeout so we can catch up with input
+\t\tlong timeout = got_event ? 500000000 : (1.0 / TW_FRAMERATE * 1000000000);"""
+LOOP_NEW = """\t\t// Whiteink framerate patch v7: one frame of pacing, and drain the queue.
+\t\t// consume every pending event before drawing, otherwise handleDrag()
+\t\t// forwards a stale position and a direction change is invisible.
+\t\t// Capped at 64 events so a stuck input source cannot starve rendering.
+\t\tlong timeout = (long)(1.0 / TW_FRAMERATE * 1000000000);
+\t\tif (got_event && ++drain_count < 64)
+\t\t{
+\t\t\tinput_timeout_ms = 0;
+\t\t\tcontinue;
+\t\t}"""
+
+RET_OLD = "\t\treturn (ret != -2);  // -2 means no more events in the queue"
+RET_NEW = "\t\treturn (ret >= 0); // Whiteink framerate patch v7: only a real event is an event"
 
 TRACE_OLD = """#ifndef PRINT_RENDER_TIME
 \t\t\tif (ret > 1)
@@ -149,8 +173,13 @@ RULES = [
          ["#define TW_FRAMERATE 144", "#undef TW_FRAMERATE", MARKER]),
     ]),
     ("gui.cpp", [
+        (DRAIN_OLD, DRAIN_NEW,
+         ["int drain_count = 0;"]),
         (LOOP_OLD, LOOP_NEW,
-         ["(got_event ? 2 : 1)", "long timeout = (long)("]),
+         ["long timeout = (long)(1.0 / TW_FRAMERATE * 1000000000);",
+          "if (got_event && ++drain_count < 64)"]),
+        (RET_OLD, RET_NEW,
+         ["return (ret >= 0); // Whiteink framerate patch v7"]),
         (TRACE_OLD, TRACE_NEW,
          ["/tmp/fox_render_trace", "/tmp/fox_render.log", "fox_trace"]),
     ]),
@@ -234,6 +263,7 @@ def apply(gui_dir):
         ("objects.hpp", obj, ["#define TW_FRAMERATE 30"]),
         ("gui.cpp", gui, ["500000000",
                           "* (got_event ? 2 : 1)",
+                          "return (ret != -2);",
                           "#ifndef PRINT_RENDER_TIME\n\t\t\tif (ret > 1)"]),
         ("animation.cpp", anim, ["++mUpdateCount > TW_FRAMERATE / mFPS"]),
     ):

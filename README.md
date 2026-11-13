@@ -514,6 +514,61 @@ v6 把窗口改成**半帧**（144 Hz 下 3.5 ms）：`InputHandler::processInpu
 > `loopTimer()` 的这条窗口只在**有输入事件时**生效。手指不动时仍然是
 > `1 / TW_FRAMERATE`，所以静止画面不会无谓地空转渲染。
 
+### 滑动不能打断：输入队列根本没被排空
+
+实机反馈（r20，触摸已确认 234 Hz、面板 144 Hz）：
+
+> 还是有点卡卡的，而且滑动的时候不支持打断（在往上滑的时候突然下滑没有反应，
+> 要等上滑结束才行）
+
+这条把问题从「性能」拉回到了「逻辑」。看 `gui.cpp::loopTimer()`：
+
+```c
+do {
+    bool got_event = input_handler.processInput(input_timeout_ms);
+    ...
+    long timeout = got_event ? 500000000 : (1.0 / TW_FRAMERATE * 1000000000);
+    if (diff.tv_sec || diff.tv_nsec > timeout) { ... return; }   // ← 每帧只消费 1 个事件
+    input_timeout_ms = 0;
+} while (1);
+```
+
+`processInput()` **一次只读一个输入事件**，而 `diff` 从上次返回时刻开始算起——
+它已经包含了上一帧的渲染耗时。所以进入 `loopTimer` 后第一次 `processInput` 拿到事件，
+`diff`（约 20–25 ms）立刻大于窗口，**函数当场返回，只消费了这 1 个事件**。
+
+于是：触摸 234 Hz 每帧产生 ~5 个事件，每帧只消费 1 个 → **队列无界增长**。
+`handleDrag()` 转发的是「已消费到的那一帧的位置」，不是手指当前位置，所以
+
+- 画面滞后于手指 → 感觉「卡」；
+- 反向操作要等前面几十个旧事件消费完才反映出来 → 感觉「不能打断」。
+
+`processInput` 的返回值也有责任：`return (ret != -2);` 把「超时没数据」(`-1`)
+也当成「读到事件」，所以调用方根本无法判断队列空没空。
+
+v7 的修法：
+
+```c
+int drain_count = 0;                       // 本次 loopTimer 已消费的事件数
+do {
+    bool got_event = input_handler.processInput(input_timeout_ms);
+    ...
+    long timeout = (long)(1.0 / TW_FRAMERATE * 1000000000);
+    if (got_event && ++drain_count < 64) { // 队列还有事件：先排空再画
+        input_timeout_ms = 0;
+        continue;
+    }
+    if (diff.tv_sec || diff.tv_nsec > timeout) { ... return; }
+    ...
+} while (1);
+```
+
+配合 `processInput()` 的返回值改成 `return (ret >= 0);`——只有真正读到事件才算事件。
+排空上限 64 次是防止某个输入源卡死时饿死渲染。
+
+这样每帧开始就把积压的事件全部吃掉，`handleDrag()` 拿到的是**手指当前位置**，
+反向立刻生效；渲染仍是每帧一次，节拍不变。
+
 #### 用内建计时器分辨「画得慢」还是「等得久」
 
 v6 在 `gui.cpp` 里加了一个**默认关闭**的帧计时器，开关是一个文件，不用重编译：
