@@ -102,9 +102,12 @@ TRACE_NEW = """#ifndef PRINT_RENDER_TIME
 \t\t\t * render/flip are MICROSECONDS. flip includes the blocking atomic
 \t\t\t * commit, so it reads ~16000 at 60 Hz and ~6900 at 144 Hz. */
 \t\t\t{
-\t\t\t\tstatic int fox_trace = -1;
-\t\t\t\tif (fox_trace < 0)
-\t\t\t\t\tfox_trace = (access("/tmp/fox_render_trace", F_OK) == 0) ? 1 : 0;
+\t\t\t\t/* Re-check every frame: the switch has to work AFTER boot.
+\t\t\t\t * v6 cached this in a static, so `touch /tmp/fox_render_trace`
+\t\t\t\t * from adb never took effect - the value was latched on the
+\t\t\t\t * first rendered frame, long before the file existed. One
+\t\t\t\t * access() syscall per rendered frame is ~1 us. */
+\t\t\t\tconst int fox_trace = (access("/tmp/fox_render_trace", F_OK) == 0) ? 1 : 0;
 \t\t\t\tif (!fox_trace) {
 \t\t\t\t\tif (ret > 1)
 \t\t\t\t\t\tPageManager::Render();
