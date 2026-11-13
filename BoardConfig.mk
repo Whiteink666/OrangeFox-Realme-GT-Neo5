@@ -147,6 +147,19 @@ TW_EXTRA_LANGUAGES := true
 # with the wqy-microhei fontoverride. Users can still switch in Settings.
 TW_DEFAULT_LANGUAGE := zh_CN
 TW_INCLUDE_CRYPTO := true
+
+# Version string shown by the recovery UI.
+# bootable/recovery/orangefox.mk hardcodes FOX_INTERNAL_RELEASE := R12.0 and
+# builds the displayed version as
+#     FOX_BUILD = FOX_INTERNAL_RELEASE "_" FOX_MAINTAINER_PATCH_VERSION
+# so without the variable below the UI reports plain "R12.0" even though this
+# build syncs the rolling fox_12.1 branch (HEAD 2026-11-11) and therefore
+# already carries the official R12.0_1 changelog - "improved Android 17
+# support, especially formatting data", the Chinese translation fixes, and the
+# forced reboot after flashing a ROM. Set it so what the UI reports matches
+# what the code actually is. Must be a whole number (orangefox.mk errors
+# otherwise).
+FOX_MAINTAINER_PATCH_VERSION := 1
 TW_NO_EXFAT_FUSE := true
 TW_INCLUDE_NTFS_3G := true
 TW_INCLUDE_RESETPROP := true

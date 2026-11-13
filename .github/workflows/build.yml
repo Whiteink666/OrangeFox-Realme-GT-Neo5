@@ -144,7 +144,7 @@ jobs:
           chmod +x ~/.bin/repo
           echo "$HOME/.bin" >> $GITHUB_PATH
 
-      - name: Set up OrangeFox source (fox_12.1 manifest / R12.0 UI)
+      - name: Set up OrangeFox source (fox_12.1 manifest / R12.0_1 UI)
         run: |
           set +e
           git clone --depth 1 https://gitlab.com/OrangeFox/sync.git "$HOME/ofsync" \
@@ -546,10 +546,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ofox-RMXTARO-r${{ github.run_number }}
-          name: OrangeFox R12.0 · RMXTARO · run ${{ github.run_number }}
+          name: OrangeFox R12.0_1 · RMXTARO · run ${{ github.run_number }}
           prerelease: true
           body: |
-            自动测试构建 · realme GT Neo5 / GT3（RMXTARO / senna）· OrangeFox R12.0
+            自动测试构建 · realme GT Neo5 / GT3（RMXTARO / senna）· OrangeFox R12.0_1
 
             含白墨工作室自定义页面（QQ 群 / 酷安 / GitHub 入口、关于页、开机画面头像），
             默认语言为简体中文。
